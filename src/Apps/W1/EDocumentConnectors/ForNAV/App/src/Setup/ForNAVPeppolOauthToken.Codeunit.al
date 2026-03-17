@@ -15,7 +15,9 @@ codeunit 6423 "ForNAV Peppol Oauth Token"
         AccessToken: SecretText;
         Roles: List of [Text];
 
+#if not DEV
     [NonDebuggable]
+#endif
     [TryFunction]
     internal procedure AcquireTokenWithClientCredentials(ClientId: Text; ClientSecret: SecretText; OAuthAuthorityUrl: Text; RedirectURL: Text; Scopes: List of [SecretText])
     var
@@ -26,7 +28,9 @@ codeunit 6423 "ForNAV Peppol Oauth Token"
         GetAccessTokenProperties(Token);
     end;
 
+#if not DEV
     [NonDebuggable]
+#endif
     local procedure GetAccessToken(ClientId: Text; ClientSecret: SecretText; OAuthAuthorityUrl: Text; RedirectURL: Text; Scopes: List of [SecretText]; var Token: Text)
     var
         HttpClient: HttpClient;
@@ -78,7 +82,9 @@ codeunit 6423 "ForNAV Peppol Oauth Token"
         end;
     end;
 
+#if not DEV
     [NonDebuggable]
+#endif
     local procedure GetAccessTokenProperties(Token: Text)
     var
         Base64: Codeunit "Base64 Convert";

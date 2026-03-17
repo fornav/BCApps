@@ -107,7 +107,9 @@ codeunit 6424 "ForNAV Peppol Setup"
         InitCalled := false;
     end;
 
+#if not DEV
     [NonDebuggable]
+# endif
     local procedure AddForNavHeaders(Http: Codeunit "Http Message State")
     var
         PeppolSetup: Record "ForNAV Peppol Setup";
@@ -133,8 +135,10 @@ codeunit 6424 "ForNAV Peppol Setup"
         HttpRequestMessage.GetHeaders(HttpHeaders);
         PeppolSetup.InitSetup();
 
+#if not DEV
         if PeppolOauth.GetSecretValidTo() < CreateDateTime(CalcDate('<+2m>', Today), Time) then
             PeppolOauth.GetNewSecurityKey();
+#endif
 
         if (AccessToken.IsEmpty()) or (AccessTokenExpires < CurrentDateTime) then begin
             if not OAuthToken.AcquireTokenWithClientCredentials(PeppolOauth.GetClientID(), PeppolOauth.GetClientSecret(), PeppolOauth.GetOAuthAuthorityUrl(), '', PeppolOauth.GetEndpointScope()) then

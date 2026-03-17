@@ -320,6 +320,10 @@ table 6414 "ForNAV Peppol Setup"
             end;
 
         IsSaaS := EnvironmentInformation.IsSaaS();
+#if DEV
+        if not IsSaaS then
+            exit;
+#endif
 
         Dlg.Open(DialogLbl);
         ResetForSetup();

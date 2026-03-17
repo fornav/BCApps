@@ -105,7 +105,9 @@ codeunit 6422 "ForNAV Peppol Oauth"
         exit(GetSecretStorage(ClientSecretKeyLbl));
     end;
 
+#if not DEV
     [NonDebuggable]
+#endif
     internal procedure ValidateScope(Scope: Text)
     var
         ScopePart: Text;
@@ -144,6 +146,8 @@ codeunit 6422 "ForNAV Peppol Oauth"
 
     internal procedure ValidateEndpoint(Endpoint: Text)
     begin
+        // TODO: Can we figure out a way to add an additional layer of security to the authorize request? A certificate or something similar?
+
         if Endpoint = GetEndpoint() then
             exit;
 
@@ -159,7 +163,11 @@ codeunit 6422 "ForNAV Peppol Oauth"
 
     internal procedure GetDefaultEndpoint(): Text
     var
+#if DEV
+        DefaultEndpointLbl: Label 'dev', Locked = true;
+#else
         DefaultEndpointLbl: Label 'v2', Locked = true;
+#endif
     begin
         exit(DefaultEndpointLbl);
     end;
@@ -364,7 +372,9 @@ codeunit 6422 "ForNAV Peppol Oauth"
         exit(HttpResponseMessage.HttpStatusCode = 204);
     end;
 
+#if not DEV
     [NonDebuggable]
+#endif
     internal procedure GetSetupFile(PassCode: SecretText; IdentificationValue: Text): Boolean
     var
         PeppolCrypto: Codeunit "ForNAV Peppol Crypto";

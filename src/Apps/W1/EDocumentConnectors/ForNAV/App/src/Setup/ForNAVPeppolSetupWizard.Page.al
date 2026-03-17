@@ -330,9 +330,13 @@ page 6414 "ForNAV Peppol Setup Wizard"
 
     local procedure SetManualSetup()
     var
+#if not DEV
         EnvironmentInformation: Codeunit "Environment Information";
+#endif
     begin
+#if not DEV
         ManualSetupEnabled := not EnvironmentInformation.IsSaaSInfrastructure();
+#endif
     end;
 
     local procedure ProcessStepAction()

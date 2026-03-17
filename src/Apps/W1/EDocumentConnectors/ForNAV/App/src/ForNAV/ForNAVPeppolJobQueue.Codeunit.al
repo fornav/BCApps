@@ -4,8 +4,8 @@
 // ------------------------------------------------------------------------------------------------
 namespace Microsoft.EServices.EDocumentConnector.ForNAV;
 
-using System.Threading;
 using System.Security.User;
+using System.Threading;
 
 codeunit 6412 "ForNAV Peppol Job Queue"
 {
@@ -91,9 +91,11 @@ codeunit 6412 "ForNAV Peppol Job Queue"
     var
         UserPermissions: Codeunit "User Permissions";
     begin
+#if not DEV
         if UserPermissions.IsSuper(UserSecurityId()) then begin
             ProcessEntries();
             SelectLatestVersion();
         end;
+#endif
     end;
 }
