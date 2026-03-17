@@ -9,9 +9,22 @@ codeunit 6413 "ForNAV Peppol Upgrade"
     Access = Internal;
 
     trigger OnUpgradePerCompany()
+    begin
+        UpdateEndpoint();
+    end;
+
+    internal procedure UpdateEndpoint()
     var
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
+        NewScopes: Text;
     begin
-        PeppolOauth.ValidateEndpoint(PeppolOauth.GetDefaultEndpoint(), true);
+        if not PeppolOauth.TryGetNewEndpointScope(PeppolOauth.GetDefaultEndpoint(), NewScopes) then
+            exit;
+
+        if NewScopes = '' then
+            exit;
+
+        PeppolOauth.ValidateScope(NewScopes);
+        PeppolOauth.ValidateEndpoint(PeppolOauth.GetDefaultEndpoint());
     end;
 }

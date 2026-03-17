@@ -39,7 +39,12 @@ codeunit 6424 "ForNAV Peppol Setup"
         Handled: Boolean;
         HttpRequestMessage: HttpRequestMessage;
         HttpResponseMessage: HttpResponseMessage;
+        DialogLbl: Label ' Sending request to the FORNAV Peppol Network. Please wait...', Comment = '%1= Source control provider', Locked = true;
+        Dlg: Dialog;
     begin
+        if GuiAllowed then
+            Dlg.Open(DialogLbl);
+
         AddForNavHeaders(Http);
         OnBeforeSend(HttpClient, Http, Handled);
         if Handled then
@@ -52,6 +57,10 @@ codeunit 6424 "ForNAV Peppol Setup"
         RemoveSecurityHeaders(HttpRequestMessage);
         Http.SetHttpResponseMessage(HttpResponseMessage);
         Http.SetHttpRequestMessage(HttpRequestMessage);
+
+        if GuiAllowed then
+            Dlg.Close();
+
         exit(HttpResponseMessage.HttpStatusCode);
     end;
 
@@ -87,7 +96,7 @@ codeunit 6424 "ForNAV Peppol Setup"
         end else begin
             InitLicens();
             Setup.InitSetup();
-            if Setup.Authorized then
+            if Setup.TestAuthorized() then
                 SMP.ParticipantExists(Setup);
             InitCalled := true;
         end;
@@ -125,7 +134,7 @@ codeunit 6424 "ForNAV Peppol Setup"
         PeppolSetup.InitSetup();
 
         if PeppolOauth.GetSecretValidTo() < CreateDateTime(CalcDate('<+2m>', Today), Time) then
-            PeppolSetup.RotateClientSecret();
+            PeppolOauth.GetNewSecurityKey();
 
         if (AccessToken.IsEmpty()) or (AccessTokenExpires < CurrentDateTime) then begin
             if not OAuthToken.AcquireTokenWithClientCredentials(PeppolOauth.GetClientID(), PeppolOauth.GetClientSecret(), PeppolOauth.GetOAuthAuthorityUrl(), '', PeppolOauth.GetEndpointScope()) then

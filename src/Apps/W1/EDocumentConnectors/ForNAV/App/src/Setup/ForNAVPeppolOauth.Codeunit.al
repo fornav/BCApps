@@ -16,7 +16,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
 
     var
         SetupKeyLbl: Label 'setupKey', Locked = true;
-        BaseUrlLbl: Label 'https://peppolapi.fornav.com/', Locked = true;
+        BaseUrlLbl: Label 'https://fornavpeppol.azure-api.net/', Locked = true;
         RequestConfigLbl: Label 'RequestConfig', Locked = true;
         RequestConfigFileLbl: Label 'RequestConfigFile', Locked = true;
         RotateSecretLbl: Label 'RotateSecret', Locked = true;
@@ -142,15 +142,12 @@ codeunit 6422 "ForNAV Peppol Oauth"
         Scopes.Add(GetSecretStorage(ScopeEndpointLbl));
     end;
 
-    internal procedure ValidateEndpoint(Endpoint: Text; Swap: Boolean)
+    internal procedure ValidateEndpoint(Endpoint: Text)
     begin
-        if StrLen(Endpoint) > 1 then
-            Endpoint := Endpoint.Substring(1, 1).ToUpper() + Endpoint.Substring(2).ToLower();
+        if Endpoint = GetEndpoint() then
+            exit;
 
-        if Swap then
-            SwapEndpoint(Endpoint)
-        else
-            SetIsolatedStorage(EndpointKeyLbl, Endpoint);
+        SetIsolatedStorage(EndpointKeyLbl, Endpoint);
     end;
 
     internal procedure GetEndpoint() Result: Text
@@ -162,7 +159,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
 
     internal procedure GetDefaultEndpoint(): Text
     var
-        DefaultEndpointLbl: Label 'Beta', Locked = true;
+        DefaultEndpointLbl: Label 'v2', Locked = true;
     begin
         exit(DefaultEndpointLbl);
     end;
@@ -184,6 +181,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
             exit(CreateDateTime(0D, 0T));
 
         Evaluate(Result, SecretValidFrom);
+        Result := ToLocalTime(Result);
     end;
 
     internal procedure ValidateSecretValidTo(SecretValidTo: DateTime)
@@ -207,6 +205,18 @@ codeunit 6422 "ForNAV Peppol Oauth"
             exit(CreateDateTime(0D, 0T));
 
         Evaluate(Result, SecretValidTo);
+        Result := ToLocalTime(Result);
+    end;
+
+    local procedure ToLocalTime(UtcDateTime: DateTime) Result: DateTime
+    var
+        TypeHelper: Codeunit "Type Helper";
+        TimeZoneOffset: Duration;
+    begin
+        if not TypeHelper.GetUserTimezoneOffset(TimeZoneOffset) then
+            exit;
+
+        Result := UtcDateTime + TimeZoneOffset;
     end;
 
     [NonDebuggable]
@@ -251,28 +261,30 @@ codeunit 6422 "ForNAV Peppol Oauth"
         ValidateForNAVTenantID('');
         ValidateSecret(SecretStrSubstNo(''));
         ValidateScope('');
-        ValidateEndpoint('', false);
+        ValidateEndpoint('');
         ValidateSecretValidTo(CreateDateTime(0D, 0T));
         ResetSetupKey();
     end;
 
-    internal procedure GetPeppolEndpointURL(): Text
+    internal procedure GetPeppolEndpointURL() Url: Text
     var
-        PeppolAPEndpointLbl: Label 'PeppolAPEndpoint', Locked = true;
+        PeppolAPEndpointLbl: Label 'bc/apendpoint', Locked = true;
     begin
-        exit(GetPeppolURL(PeppolAPEndpointLbl));
+        Url := BaseUrlLbl + PeppolAPEndpointLbl + '/' + GetEndpoint();
+        if Url.EndsWith('/') then
+            exit(Url)
+        else
+            exit(Url + '/');
     end;
 
-    local procedure GetPeppolSetupURL(): Text
+    local procedure GetPeppolSetupURL(Endpoint: Text) Url: Text
     var
-        ForNAVPeppolConfigLbl: Label 'ForNAVPeppolConfig', Locked = true;
+        ForNAVPeppolConfigLbl: Label 'bc/config', Locked = true;
     begin
-        exit(GetPeppolURL(ForNAVPeppolConfigLbl));
-    end;
+        if Endpoint = '' then
+            Endpoint := GetDefaultEndpoint();
 
-    local procedure GetPeppolURL(Function: Text) Url: Text
-    begin
-        Url := BaseUrlLbl + Function + '/' + GetEndpoint();
+        Url := BaseUrlLbl + ForNAVPeppolConfigLbl + '/' + Endpoint;
         if Url.EndsWith('/') then
             exit(Url)
         else
@@ -314,10 +326,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
             exit(true);
 
         HttpResponseMessage := SendContex.Http().GetHttpResponseMessage();
-        if GetLastErrorText() = '' then
-            Error(HttpErr, HttpResponseMessage.HttpStatusCode, HttpResponseMessage.ReasonPhrase)
-        else
-            Error(GetLastErrorText());
+        Error(HttpErr, HttpResponseMessage.HttpStatusCode, HttpResponseMessage.ReasonPhrase);
     end;
 
     internal procedure StoreRoles(Roles: List of [Text])
@@ -333,8 +342,10 @@ codeunit 6422 "ForNAV Peppol Oauth"
         end;
     end;
 
+    // #if not DEV
     [NonDebuggable]
-    internal procedure SendSetupRequest(IsSaas: Boolean): Boolean
+    // #endif
+    internal procedure SendSetupRequest(IsSaas: Boolean; NewEndpoint: Text): Boolean
     var
         HttpClient: HttpClient;
         HttpHeaders: HttpHeaders;
@@ -342,9 +353,9 @@ codeunit 6422 "ForNAV Peppol Oauth"
         HttpResponseMessage: HttpResponseMessage;
     begin
         if IsSaas then
-            HttpRequestMessage.SetRequestUri(GetPeppolSetupURL() + RequestConfigLbl)
+            HttpRequestMessage.SetRequestUri(GetPeppolSetupURL(NewEndpoint) + RequestConfigLbl)
         else
-            HttpRequestMessage.SetRequestUri(GetPeppolSetupURL() + RequestConfigFileLbl);
+            HttpRequestMessage.SetRequestUri(GetPeppolSetupURL(NewEndpoint) + RequestConfigFileLbl);
 
         HttpRequestMessage.GetHeaders(HttpHeaders);
         AddSetupHeaders(HttpHeaders);
@@ -366,7 +377,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
         ResponseObject: JsonObject;
         Token: JsonToken;
     begin
-        HttpRequestMessage.SetRequestUri(GetPeppolSetupURL() + RequestConfigFileLbl);
+        HttpRequestMessage.SetRequestUri(GetPeppolSetupURL('') + RequestConfigFileLbl);
 
         HttpRequestMessage.GetHeaders(HttpHeaders);
         AddSetupHeaders(HttpHeaders);
@@ -391,7 +402,9 @@ codeunit 6422 "ForNAV Peppol Oauth"
         ResponseObject.Get('scope', Token);
         ValidateScope(Token.AsValue().AsText());
         ResponseObject.Get('endpoint', Token);
-        ValidateEndpoint(Token.AsValue().AsText(), false);
+        ValidateEndpoint(Token.AsValue().AsText());
+        ResponseObject.Get('scope', Token);
+        ValidateScope(Token.AsValue().AsText());
         ResponseObject.Get('tenantId', Token);
         ValidateForNAVTenantID(Token.AsValue().AsText());
         ResponseObject.Get('expires', Token);
@@ -399,7 +412,9 @@ codeunit 6422 "ForNAV Peppol Oauth"
         exit(true);
     end;
 
+#if not DEV
     [NonDebuggable]
+#endif
     internal procedure GetNewSecurityKey(): Boolean
     var
         OAuthToken: Codeunit "ForNAV Peppol Oauth Token";
@@ -413,8 +428,11 @@ codeunit 6422 "ForNAV Peppol Oauth"
         ResponseObject: JsonObject;
         Token: JsonToken;
         CannotRotateKeyErr: Label 'Cannot rotate key. Contact your ForNAV partner.\%1', Comment = '%1 = reason';
+        DialogLbl: Label 'Request new client secret from the FORNAV Peppol Network. Please wait...', Locked = true;
+        Dlg: Dialog;
     begin
-        HttpRequestMessage.SetRequestUri(GetPeppolSetupURL() + RotateSecretLbl);
+        Dlg.Open(DialogLbl);
+        HttpRequestMessage.SetRequestUri(GetPeppolSetupURL(GetEndpoint()) + RotateSecretLbl);
 
         HttpRequestMessage.GetHeaders(HttpHeaders);
         AddSetupHeaders(HttpHeaders);
@@ -441,6 +459,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
         ValidateSecret(Token.AsValue().AsText());
         ResponseObject.Get('expires', Token);
         ValidateSecretValidTo(Token.AsValue().AsDateTime());
+        Dlg.Close();
         exit(true);
     end;
 
@@ -449,11 +468,13 @@ codeunit 6422 "ForNAV Peppol Oauth"
         Company: Record Company;
         PeppolSetup: Record "ForNAV Peppol Setup";
         EnvironmentInformation: Codeunit "Environment Information";
+        TenantInformation: Codeunit "Tenant Information";
         AppInfo: ModuleInfo;
     begin
         PeppolSetup.InitSetup();
         HttpHeaders.Add(SetupKeyLbl, GetSetupKey());
         HttpHeaders.Add('tenantId', GetInstallationId());
+        HttpHeaders.Add('bcTenantId', TenantInformation.GetTenantId());
         HttpHeaders.Add('environmentName', EnvironmentInformation.GetEnvironmentName());
         Company.Get(CompanyName);
         HttpHeaders.Add('companyId', Format(Company.SystemId).TrimStart('{').TrimEnd('}'));
@@ -468,8 +489,18 @@ codeunit 6422 "ForNAV Peppol Oauth"
         HttpHeaders.Add('appPublisher', HtmlEncode(Format(AppInfo.Publisher)));
     end;
 
-    local procedure SwapEndpoint(NewEndpoint: Text): Boolean
+    [TryFunction]
+    internal procedure TryGetNewEndpointScope(NewEndpoint: Text; var NewScopes: Text)
+    begin
+        NewScopes := GetNewEndpointScope(NewEndpoint);
+    end;
+
+#if not DEV
+    [NonDebuggable]
+#endif
+    internal procedure GetNewEndpointScope(NewEndpoint: Text) NewScopes: Text
     var
+        Setup: Record "ForNAV Peppol Setup";
         OAuthToken: Codeunit "ForNAV Peppol Oauth Token";
         HttpClient: HttpClient;
         HttpHeaders: HttpHeaders;
@@ -483,12 +514,17 @@ codeunit 6422 "ForNAV Peppol Oauth"
         CannotSwapEndpointErr: Label 'Cannot swap endpoint. Contact your ForNAV partner.\%1', Comment = '%1 = reason';
     begin
         case true of
+            NewEndpoint = '',
             GetEndpoint() = NewEndpoint,
-            not TryTestOAuth():
-                exit(false);
+            GetClientID() = '':
+                Error(CannotSwapEndpointErr, 'Invalid endpoint.');
         end;
 
-        HttpRequestMessage.SetRequestUri(GetPeppolSetupURL() + SwapEndpointLbl);
+        Setup.FindFirst();
+        if not Setup.TestAuthorized() then
+            Error(CannotSwapEndpointErr, 'Not authorized. Please authorize on the FORNAV Peppol Setup page.');
+
+        HttpRequestMessage.SetRequestUri(GetPeppolSetupURL('') + SwapEndpointLbl);
 
         HttpRequestMessage.GetHeaders(HttpHeaders);
         AddSetupHeaders(HttpHeaders);
@@ -513,10 +549,13 @@ codeunit 6422 "ForNAV Peppol Oauth"
             Error(InvalidCLientIdErr);
 
         ResponseObject.Get('endpoint', Token);
-        ValidateEndpoint(Token.AsValue().AsText(), false);
+        if NewEndpoint <> Token.AsValue().AsText() then
+            Error(CannotSwapEndpointErr, 'Endpoint in response does not match requested endpoint.');
+
         ResponseObject.Get('scope', Token);
-        ValidateScope(Token.AsValue().AsText());
-        exit(true);
+        NewScopes := Token.AsValue().AsText();
+        if NewScopes = '' then
+            Error('Failed to get scopes for new endpoint. Contact your ForNAV partner.');
     end;
 
     local procedure HTMLEncode(Input: Text): Text

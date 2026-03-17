@@ -77,6 +77,13 @@ table 6414 "ForNAV Peppol Setup"
             DataClassification = SystemMetadata;
             Access = Internal;
         }
+        field(19; "Setup Message"; Text[2048])
+        {
+            Caption = 'Setup Message';
+            ToolTip = 'Setup Message from ForNAV. If you have problems with the setup, please contact your ForNAV partner and provide them with this message.';
+            DataClassification = CustomerContent;
+            Access = Internal;
+        }
         field(34; "E-Mail"; Text[80])
         {
             Caption = 'Email';
@@ -295,28 +302,32 @@ table 6414 "ForNAV Peppol Setup"
         exit(Format(ValueText));
     end;
 
-    internal procedure SetupOauth()
+    internal procedure SetupOauth(NewEndpoint: Text)
     var
         Setup: Codeunit "ForNAV Peppol Setup";
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
         EnvironmentInformation: Codeunit "Environment Information";
         IsSaaS: Boolean;
+        DialogLbl: Label ' Sending authentication request to the FORNAV Peppol Network. Please wait...', Comment = '%1= Source control provider', Locked = true;
+        Dlg: Dialog;
     begin
         Setup.ClearAccessToken();
-        if PeppolOauth.GetClientID() <> '' then
-            if PeppolOauth.TestOAuth() then begin
+        if (PeppolOauth.GetClientID() <> '') and (PeppolOauth.GetSecretValidTo() > CurrentDateTime) and (PeppolOauth.GetEndpoint() <> NewEndpoint) then
+            if PeppolOauth.TryTestOAuth() then begin
                 Authorized := true;
                 Modify();
                 exit;
             end;
 
+        IsSaaS := EnvironmentInformation.IsSaaS();
+
+        Dlg.Open(DialogLbl);
         ResetForSetup();
         PeppolOauth.SetSetupKey();
-        IsSaaS := EnvironmentInformation.IsSaaS();
 
         Commit();
 
-        if not PeppolOauth.SendSetupRequest(IsSaas) then
+        if not PeppolOauth.SendSetupRequest(IsSaas, NewEndpoint) then
             Error(CannotGetSetupErr);
 
         SelectLatestVersion();
@@ -324,6 +335,7 @@ table 6414 "ForNAV Peppol Setup"
         "Oauth Setup Request Sent" := Today();
         Modify();
 
+        Dlg.Close();
         if IsSaaS then
             ValidateConnection();
     end;
@@ -338,26 +350,20 @@ table 6414 "ForNAV Peppol Setup"
         ValidateConnection();
     end;
 
-    internal procedure RotateClientSecret()
-    var
-        PeppolOauth: Codeunit "ForNAV Peppol Oauth";
-    begin
-        if PeppolOauth.GetSecretValidFrom() > CreateDateTime(CalcDate('<-1w>', Today), Time) then
-            exit;
-
-        PeppolOauth.GetNewSecurityKey();
-        ValidateConnection();
-    end;
-
     local procedure ValidateConnection()
     var
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
+        SetupSuccessfulLbl: Label 'Connection to ForNAV Peppol Network successful.', Locked = true;
     begin
-        if PeppolOauth.TestOAuth() then begin
+        "Setup Message" := '';
+        if PeppolOauth.TryTestOAuth() then begin
             Authorized := true;
             PeppolOauth.ResetSetupKey();
-        end else
+            "Setup Message" := SetupSuccessfulLbl;
+        end else begin
+            "Setup Message" := CopyStr(GetLastErrorText(), 1, MaxStrLen("Setup Message"));
             Authorized := false;
+        end;
 
         Modify();
     end;
@@ -369,6 +375,7 @@ table 6414 "ForNAV Peppol Setup"
         PeppolOauth.ResetForSetup();
         Clear("Oauth Setup Request Sent");
         Authorized := false;
+        "Setup Message" := '';
         Modify();
     end;
 
@@ -415,17 +422,18 @@ table 6414 "ForNAV Peppol Setup"
     var
         CompanyInformation: Record "Company Information";
     begin
-        if not FindFirst() then begin
-            Rec.PK := CreateGuid();
-            Rec."E-Document Service" := GetForNAVCode();
-            Rec."Document Sending Profile" := GetForNAVCode();
-            SetupDocumentSendingProfile();
-            UpdateFromCompanyInformation();
-            CompanyInformation.Get();
-            Rec."Demo Company" := CompanyInformation."Demo Company";
-            Rec.Test := Rec."Demo Company";
-            Rec.Insert();
-        end;
+        if FindFirst() then
+            exit;
+
+        Rec.PK := CreateGuid();
+        Rec."E-Document Service" := GetForNAVCode();
+        Rec."Document Sending Profile" := GetForNAVCode();
+        SetupDocumentSendingProfile();
+        UpdateFromCompanyInformation();
+        CompanyInformation.Get();
+        Rec."Demo Company" := CompanyInformation."Demo Company";
+        Rec.Test := Rec."Demo Company";
+        Rec.Insert();
     end;
 
     local procedure SetupDocumentSendingProfile()
@@ -513,7 +521,12 @@ table 6414 "ForNAV Peppol Setup"
     end;
 
     internal procedure IsTest(): Boolean
+    var
+        EnvironmentInformation: Codeunit "Environment Information";
     begin
+        if EnvironmentInformation.IsSandbox() then
+            exit(true);
+
         exit(Test);
     end;
 
@@ -525,9 +538,13 @@ table 6414 "ForNAV Peppol Setup"
         BusinessEntityObject.Add('GeographicalInformation', Address);
     end;
 
-    procedure IsAuthorized(): Boolean
+    procedure TestAuthorized(): Boolean
+    var
+        PeppolOauth: Codeunit "ForNAV Peppol Oauth";
+        SecretValidTo: DateTime;
     begin
-        exit(Rec.Authorized);
+        SecretValidTo := PeppolOauth.GetSecretValidTo();
+        exit(Rec.Authorized and (SecretValidTo > CurrentDateTime));
     end;
 
     internal procedure ID(): Text
