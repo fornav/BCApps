@@ -31,7 +31,6 @@ table 6414 "ForNAV Peppol Setup"
             Caption = 'Name';
             ToolTip = 'Specifies the name of the company.';
             NotBlank = true;
-            Editable = false;
             DataClassification = CustomerContent;
             Access = Internal;
         }
@@ -87,9 +86,9 @@ table 6414 "ForNAV Peppol Setup"
         field(34; "E-Mail"; Text[80])
         {
             Caption = 'Email';
+            ToolTip = 'Specifies the email of the contact person.';
             ExtendedDatatype = EMail;
             NotBlank = true;
-            Editable = false;
             DataClassification = CustomerContent;
             Access = Internal;
 
@@ -108,7 +107,6 @@ table 6414 "ForNAV Peppol Setup"
             ToolTip = 'Specifies the home page of the company.';
             ExtendedDatatype = URL;
             NotBlank = true;
-            Editable = false;
             DataClassification = CustomerContent;
             Access = Internal;
         }
@@ -118,7 +116,6 @@ table 6414 "ForNAV Peppol Setup"
             ToolTip = 'Specifies the country/region code of the company.';
             TableRelation = "Country/Region";
             NotBlank = true;
-            Editable = false;
             DataClassification = CustomerContent;
             Access = Internal;
         }
@@ -133,8 +130,8 @@ table 6414 "ForNAV Peppol Setup"
         field(51; "Contact Person"; Text[50])
         {
             Caption = 'Contact Person';
+            ToolTip = 'Specifies the contact person of the company.';
             NotBlank = true;
-            Editable = false;
             DataClassification = CustomerContent;
             Access = Internal;
         }
@@ -180,7 +177,6 @@ table 6414 "ForNAV Peppol Setup"
             ToolTip = 'Specifies the Identification Code.';
             DataClassification = CustomerContent;
             NotBlank = true;
-            Editable = false;
             Access = Internal;
         }
         field(1001; "Identification Value"; Text[50])
@@ -189,7 +185,6 @@ table 6414 "ForNAV Peppol Setup"
             ToolTip = 'Specifies the Identification Value.';
             DataClassification = CustomerContent;
             NotBlank = true;
-            Editable = false;
             Access = Internal;
         }
 
@@ -199,7 +194,6 @@ table 6414 "ForNAV Peppol Setup"
             ToolTip = 'Specifies the address of the company.';
             DataClassification = CustomerContent;
             NotBlank = true;
-            Editable = false;
             Access = Internal;
         }
 
@@ -209,7 +203,6 @@ table 6414 "ForNAV Peppol Setup"
             ToolTip = 'Specifies the two letter ISO 639-1 language code';
             DataClassification = CustomerContent;
             NotBlank = true;
-            Editable = false;
             Access = Internal;
             trigger OnValidate()
             begin
@@ -311,6 +304,7 @@ table 6414 "ForNAV Peppol Setup"
         DialogLbl: Label ' Sending authentication request to the FORNAV Peppol Network. Please wait...', Comment = '%1= Source control provider', Locked = true;
         Dlg: Dialog;
     begin
+        // TODO On Prem authentication for Docker
         Setup.ClearAccessToken();
         if (PeppolOauth.GetClientID() <> '') and (PeppolOauth.GetSecretValidTo() > CurrentDateTime) and (PeppolOauth.GetEndpoint() <> NewEndpoint) then
             if PeppolOauth.TryTestOAuth() then begin

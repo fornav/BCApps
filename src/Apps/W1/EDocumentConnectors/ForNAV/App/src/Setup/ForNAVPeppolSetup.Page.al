@@ -263,6 +263,36 @@ page 6413 "ForNAV Peppol Setup"
                     CurrPage.Update();
                 end;
             }
+            action(RotateSecret)
+            {
+                Caption = 'Rotate Client Secret';
+                Enabled = IsAuthorized;
+                ApplicationArea = All;
+                Image = RedoFluent;
+                ToolTip = 'Gets a new client secret and deletes the old one. May take a long time to run.';
+                trigger OnAction()
+                var
+#if not DEV
+                    SureQst: Label 'Are you sure you want to rotate the client secret? This process may run a long time and will delete the old secret.';
+                    CannotRotateErr: Label 'Cannot rotate secret if it is less than one week old.';
+#endif
+                begin
+#if not DEV
+                    if PeppolOauth.GetSecretValidFrom() > CreateDateTime(CalcDate('<-1w>', Today), Time) then
+                        Error(CannotRotateErr);
+
+                    if not Confirm(SureQst) then
+                        exit;
+#endif
+                    if PeppolOauth.TryTestOAuth() then
+                        PeppolOauth.GetNewSecurityKey()
+                    else
+                        Page.RunModal(Page::"ForNAV Peppol Setup Wizard", Rec);
+
+                    SetGlobals();
+                    CurrPage.Update();
+                end;
+            }
             action(CompanyInformationFld)
             {
                 Enabled = Rec.Status <> Rec.Status::Published;
@@ -293,36 +323,6 @@ page 6413 "ForNAV Peppol Setup"
 
                     Rec.Authorized := true;
                     Message(ConnectionOkMsg);
-                end;
-            }
-            action(RotateSecret)
-            {
-                Caption = 'Rotate Client Secret';
-                Enabled = IsAuthorized;
-                ApplicationArea = All;
-                Image = RedoFluent;
-                ToolTip = 'Gets a new client secret and deletes the old one. May take a long time to run.';
-                trigger OnAction()
-                var
-#if not DEV
-                    SureQst: Label 'Are you sure you want to rotate the client secret? This process may run a long time and will delete the old secret.';
-                    CannotRotateErr: Label 'Cannot rotate secret if it is less than one week old.';
-#endif
-                begin
-#if not DEV
-                    if PeppolOauth.GetSecretValidFrom() > CreateDateTime(CalcDate('<-1w>', Today), Time) then
-                        Error(CannotRotateErr);
-
-                    if not Confirm(SureQst) then
-                        exit;
-#endif
-                    if PeppolOauth.TryTestOAuth() then
-                        PeppolOauth.GetNewSecurityKey()
-                    else
-                        Page.RunModal(Page::"ForNAV Peppol Setup Wizard", Rec);
-
-                    SetGlobals();
-                    CurrPage.Update();
                 end;
             }
             action(ServiceSetup)
