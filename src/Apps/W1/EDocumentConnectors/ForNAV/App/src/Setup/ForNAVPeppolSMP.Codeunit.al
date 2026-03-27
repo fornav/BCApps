@@ -101,7 +101,7 @@ codeunit 6425 "ForNAV Peppol SMP"
         case result of
             0:
                 Setup.Status := Setup.Status::"Offline";
-            401:
+            401, 418:
                 begin
                     Setup.Authorized := false;
                     Message(ConnectionLbl, GetLastErrorText());

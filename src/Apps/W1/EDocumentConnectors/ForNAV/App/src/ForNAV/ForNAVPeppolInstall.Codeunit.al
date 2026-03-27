@@ -9,18 +9,9 @@ codeunit 6411 "ForNAV Peppol Install"
     Access = Internal;
 
     trigger OnInstallAppPerCompany()
-    begin
-#if DEV
-        UpdateEndpoint();
-#endif
-    end;
-
-#if DEV
-    local procedure UpdateEndpoint()
     var
         Upgrade: Codeunit "ForNAV Peppol Upgrade";
     begin
         Upgrade.UpdateEndpoint();
     end;
-#endif
 }
