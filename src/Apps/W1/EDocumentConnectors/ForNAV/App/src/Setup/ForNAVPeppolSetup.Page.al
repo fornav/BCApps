@@ -113,27 +113,15 @@ page 6413 "ForNAV Peppol Setup"
                         PeppolOauth.ValidateClientID(ClientId);
                     end;
                 }
-                field(PeppolEndpoint; PeppolEndpoint)
+                field(Endpoint; Rec."Endpoint")
                 {
-                    Caption = 'Peppol Endpoint';
                     ToolTip = 'Specifies the Peppol Endpoint. You can get this from your ForNAV partner.';
                     ApplicationArea = All;
-                    Editable = ShowConnectionSetup;
+                    Importance = Additional;
 
                     trigger OnValidate()
-                    var
-                        NewScopes: Text;
                     begin
-                        PeppolEndpoint := PeppolEndpoint.ToLower();
-                        NewScopes := PeppolOauth.GetNewEndpointScope(PeppolEndpoint);
-                        PeppolOauth.ValidateScope(NewScopes);
-                        PeppolOauth.ValidateEndpoint(PeppolEndpoint);
-
-                        if not PeppolOauth.TestOAuth() then
-                            Error(ConnectionFailedErr);
-
-                        Rec.Authorized := true;
-                        Message(ConnectionOkMsg);
+                        ValidateEndpoint();
                     end;
                 }
                 field(ForNAVTenantId; ForNAVTenantId)
@@ -420,7 +408,6 @@ page 6413 "ForNAV Peppol Setup"
         Setup: Codeunit "ForNAV Peppol Setup";
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
         ClientId: Text;
-        PeppolEndpoint: Text;
         ForNAVTenantId: Text;
         [NonDebuggable]
         ClientSecret: Text;
@@ -464,6 +451,22 @@ page 6413 "ForNAV Peppol Setup"
             Notification.AddAction('Link', Codeunit::"ForNAV Peppol Setup", 'NotificationLink');
             Notification.Send();
         end;
+    end;
+
+    internal procedure ValidateEndpoint()
+    begin
+        if not Rec.Authorized then
+            exit;
+
+        if Rec.Endpoint = PeppolOauth.GetEndpoint() then
+            exit;
+
+        Rec.Modify();
+        if not PeppolOauth.TestOAuth() then
+            Error(ConnectionFailedErr);
+
+        Rec.Authorized := true;
+        Message(ConnectionOkMsg);
     end;
 
     procedure SendEmail()
@@ -527,7 +530,6 @@ page 6413 "ForNAV Peppol Setup"
         ShowConnectionSetup := true;
 #endif
         ClientId := PeppolOauth.GetClientID();
-        PeppolEndpoint := PeppolOauth.GetEndpoint();
         ForNAVTenantId := PeppolOauth.GetForNAVTenantID();
         ClientSecret := GetSecret();
         Scope := GetSecret();

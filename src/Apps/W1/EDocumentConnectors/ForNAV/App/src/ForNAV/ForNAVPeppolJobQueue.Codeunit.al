@@ -86,16 +86,4 @@ codeunit 6412 "ForNAV Peppol Job Queue"
         JobQueueEntry."No. of Minutes between Runs" := 30;
         Enqueue.Run(JobQueueEntry);
     end;
-
-    procedure ProcessEntriesIfSuper()
-    var
-        UserPermissions: Codeunit "User Permissions";
-    begin
-#if not DEV
-        if UserPermissions.IsSuper(UserSecurityId()) then begin
-            ProcessEntries();
-            SelectLatestVersion();
-        end;
-#endif
-    end;
 }

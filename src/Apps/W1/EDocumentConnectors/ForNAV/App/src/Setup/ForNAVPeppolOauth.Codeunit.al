@@ -9,6 +9,7 @@ using System.Azure.Identity;
 using System.Environment;
 using System.Reflection;
 using System.Security.AccessControl;
+using System.Utilities;
 
 codeunit 6422 "ForNAV Peppol Oauth"
 {
@@ -20,13 +21,11 @@ codeunit 6422 "ForNAV Peppol Oauth"
         RequestConfigLbl: Label 'RequestConfig', Locked = true;
         RequestConfigFileLbl: Label 'RequestConfigFile', Locked = true;
         RotateSecretLbl: Label 'RotateSecret', Locked = true;
-        SwapEndpointLbl: Label 'SwapEndpoint', Locked = true;
         ClientIdKeyLbl: Label 'ClientIdKey', Locked = true;
         TenantIdKeyLbl: Label 'TenantIdKey', Locked = true;
         ClientSecretKeyLbl: Label 'SecretKey', Locked = true;
         ScopeEndpointLbl: Label 'ScopeEndpoint', Locked = true;
         ScopeConfigLbl: Label 'ScopeConfig', Locked = true;
-        EndpointKeyLbl: Label 'EndpointKey', Locked = true;
         SecretValidFromKeyLbl: Label 'SecretValidFromKey', Locked = true;
         SecretValidToKeyLbl: Label 'SecretValidToKey', Locked = true;
         InvalidCLientIdErr: Label 'Invalid client id. Contact your ForNAV partner.';
@@ -133,7 +132,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
         Scopes.Add(GetSecretStorage(ScopeEndpointLbl));
     end;
 
-    internal procedure GetScopeConfig() Scopes: List of [SecretText];
+    internal procedure GetConfigScope() Scopes: List of [SecretText];
     begin
         Scopes.Add(GetSecretStorage(ScopeConfigLbl));
     end;
@@ -144,24 +143,35 @@ codeunit 6422 "ForNAV Peppol Oauth"
         Scopes.Add(GetSecretStorage(ScopeEndpointLbl));
     end;
 
-    internal procedure ValidateEndpoint(Endpoint: Text)
-    begin
-        // TODO: Can we figure out a way to add an additional layer of security to the authorize request? A certificate or something similar?
+    // internal procedure ValidateEndpoint(NewEndpoint: Text)
+    // var
+    //     Setup: Record "ForNAV Peppol Setup";
+    // begin
+    //     if not Setup.FindFirst() then
+    //         exit;
 
-        if Endpoint = GetEndpoint() then
-            exit;
-
-        SetIsolatedStorage(EndpointKeyLbl, Endpoint);
-    end;
+    //     Setup.Validate("Endpoint", NewEndpoint);
+    // end;
 
     internal procedure GetEndpoint() Result: Text
+    var
+        Setup: Record "ForNAV Peppol Setup";
+        RegEx: Codeunit Regex;
+        InvalidEndpointErr: Label 'Endpoint contains invalid characters. Only lowercase letters and numbers are allowed.', Locked = true;
     begin
-        Result := GetIsolatedStorage(EndpointKeyLbl);
-        if Result = '' then
-            Result := GetDefaultEndpoint();
+        case true of
+            not Setup.FindFirst(),
+            Setup.Endpoint = '':
+                exit(GetDefaultEndpoint());
+        end;
+
+        if not RegEx.IsMatch(Setup.Endpoint, '^[a-z0-9]+$') then
+            Error(InvalidEndpointErr);
+
+        exit(Setup.Endpoint);
     end;
 
-    internal procedure GetDefaultEndpoint(): Text
+    internal procedure GetDefaultEndpoint(): Text[20]
     var
 #if DEV
         DefaultEndpointLbl: Label 'dev', Locked = true;
@@ -269,7 +279,6 @@ codeunit 6422 "ForNAV Peppol Oauth"
         ValidateForNAVTenantID('');
         ValidateSecret(SecretStrSubstNo(''));
         ValidateScope('');
-        ValidateEndpoint('');
         ValidateSecretValidTo(CreateDateTime(0D, 0T));
         ResetSetupKey();
     end;
@@ -319,6 +328,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
         HttpClient: HttpClient;
         HttpRequestMessage: HttpRequestMessage;
         HttpResponseMessage: HttpResponseMessage;
+        ResponseCode: Integer;
         EndpointLbl: Label '%1Test', Locked = true;
         HttpErr: Label 'Http error: %1\Reason: %2', Comment = '%1= statuscode %2= reasonphrase';
     begin
@@ -330,11 +340,15 @@ codeunit 6422 "ForNAV Peppol Oauth"
         HttpRequestMessage.SetRequestUri(StrSubstNo(EndpointLbl, GetPeppolEndpointURL()));
         HttpRequestMessage.Method('GET');
 
-        if Setup.Send(HttpClient, SendContex.Http()) = 200 then
+        ResponseCode := Setup.Send(HttpClient, SendContex.Http());
+        if ResponseCode = 200 then
             exit(true);
 
         HttpResponseMessage := SendContex.Http().GetHttpResponseMessage();
-        Error(HttpErr, HttpResponseMessage.HttpStatusCode, HttpResponseMessage.ReasonPhrase);
+        if ResponseCode = 407 then
+            Error(HttpErr, ResponseCode, GetLastErrorText())
+        else
+            Error(HttpErr, ResponseCode, HttpResponseMessage.ReasonPhrase);
     end;
 
     internal procedure StoreRoles(Roles: List of [Text])
@@ -411,8 +425,8 @@ codeunit 6422 "ForNAV Peppol Oauth"
         ValidateSecret(Token.AsValue().AsText());
         ResponseObject.Get('scope', Token);
         ValidateScope(Token.AsValue().AsText());
-        ResponseObject.Get('endpoint', Token);
-        ValidateEndpoint(Token.AsValue().AsText());
+        // ResponseObject.Get('endpoint', Token);
+        // ValidateEndpoint(Token.AsValue().AsText());
         ResponseObject.Get('scope', Token);
         ValidateScope(Token.AsValue().AsText());
         ResponseObject.Get('tenantId', Token);
@@ -447,7 +461,7 @@ codeunit 6422 "ForNAV Peppol Oauth"
         HttpRequestMessage.GetHeaders(HttpHeaders);
         AddSetupHeaders(HttpHeaders);
 
-        OAuthToken.AcquireTokenWithClientCredentials(GetClientID(), GetClientSecret(), GetOAuthAuthorityUrl(), '', GetScopeConfig());
+        OAuthToken.AcquireTokenWithClientCredentials(GetClientID(), GetClientSecret(), GetOAuthAuthorityUrl(), '', GetConfigScope());
         OAuthToken.GetAccessToken(AccessToken, AccessTokenExpires);
 
         HttpHeaders.Add('Authorization', SecretStrSubstNo('Bearer %1', AccessToken));
@@ -497,75 +511,6 @@ codeunit 6422 "ForNAV Peppol Oauth"
         NavApp.GetCurrentModuleInfo(AppInfo);
         HttpHeaders.Add('appVersion', HtmlEncode(Format(AppInfo.AppVersion)));
         HttpHeaders.Add('appPublisher', HtmlEncode(Format(AppInfo.Publisher)));
-    end;
-
-    [TryFunction]
-    internal procedure TryGetNewEndpointScope(NewEndpoint: Text; var NewScopes: Text)
-    begin
-        NewScopes := GetNewEndpointScope(NewEndpoint);
-    end;
-
-#if not DEV
-    [NonDebuggable]
-#endif
-    internal procedure GetNewEndpointScope(NewEndpoint: Text) NewScopes: Text
-    var
-        Setup: Record "ForNAV Peppol Setup";
-        OAuthToken: Codeunit "ForNAV Peppol Oauth Token";
-        HttpClient: HttpClient;
-        HttpHeaders: HttpHeaders;
-        HttpRequestMessage: HttpRequestMessage;
-        HttpResponseMessage: HttpResponseMessage;
-        AccessToken: SecretText;
-        AccessTokenExpires: DateTime;
-        Response: Text;
-        ResponseObject: JsonObject;
-        Token: JsonToken;
-        CannotSwapEndpointErr: Label 'Cannot swap endpoint. Contact your ForNAV partner.\%1', Comment = '%1 = reason';
-    begin
-        case true of
-            NewEndpoint = '',
-            GetEndpoint() = NewEndpoint,
-            GetClientID() = '':
-                Error(CannotSwapEndpointErr, 'Invalid endpoint.');
-        end;
-
-        Setup.FindFirst();
-        if not Setup.TestAuthorized() then
-            Error(CannotSwapEndpointErr, 'Not authorized. Please authorize on the FORNAV Peppol Setup page.');
-
-        HttpRequestMessage.SetRequestUri(GetPeppolSetupURL('') + SwapEndpointLbl);
-
-        HttpRequestMessage.GetHeaders(HttpHeaders);
-        AddSetupHeaders(HttpHeaders);
-        HttpHeaders.Add('endpoint', NewEndpoint);
-
-        OAuthToken.AcquireTokenWithClientCredentials(GetClientID(), GetClientSecret(), GetOAuthAuthorityUrl(), '', GetScopeConfig());
-        OAuthToken.GetAccessToken(AccessToken, AccessTokenExpires);
-
-        HttpHeaders.Add('Authorization', SecretStrSubstNo('Bearer %1', AccessToken));
-
-        HttpRequestMessage.Method('POST');
-        HttpClient.Send(HttpRequestMessage, HttpResponseMessage);
-        if HttpResponseMessage.HttpStatusCode <> 200 then
-            Error(CannotSwapEndpointErr, HttpResponseMessage.ReasonPhrase);
-
-        HttpResponseMessage.Content.ReadAs(Response);
-        if not ResponseObject.ReadFrom(Response) then
-            Error(HttpResponseMessage.ReasonPhrase);
-
-        ResponseObject.Get('clientId', Token);
-        if GetClientID() <> Token.AsValue().AsText() then
-            Error(InvalidCLientIdErr);
-
-        ResponseObject.Get('endpoint', Token);
-        if NewEndpoint <> Token.AsValue().AsText() then
-            Error(CannotSwapEndpointErr, 'Endpoint in response does not match requested endpoint.');
-
-        ResponseObject.Get('scope', Token);
-        NewScopes := Token.AsValue().AsText();
-        if NewScopes = '' then
-            Error('Failed to get scopes for new endpoint. Contact your ForNAV partner.');
     end;
 
     local procedure HTMLEncode(Input: Text): Text

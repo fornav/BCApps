@@ -125,10 +125,9 @@ page 6414 "ForNAV Peppol Setup Wizard"
                         Rec.Validate("E-Mail", EMail);
                     end;
                 }
-                field(Endpoint; Endpoint)
+                field(Endpoint; Rec.Endpoint)
                 {
                     ApplicationArea = All;
-                    Caption = 'Endpoint';
                     ToolTip = 'Specifies the Peppol Endpoint. You can get this from your ForNAV partner.';
                 }
                 group(AutoOauthSetup)
@@ -263,7 +262,8 @@ page 6414 "ForNAV Peppol Setup Wizard"
         Rec := Setup;
         ContactPerson := Rec."Contact Person";
         EMail := Rec."E-Mail";
-        Endpoint := CopyStr(PeppolOauth.GetDefaultEndpoint(), 1, MaxStrLen(Endpoint));
+        Rec.Endpoint := PeppolOauth.GetDefaultEndpoint();
+        Rec.Modify();
         Step := Step::Step1;
         SetManualSetup();
         EnableControls();
@@ -278,7 +278,6 @@ page 6414 "ForNAV Peppol Setup Wizard"
         SetupPasscode: text;
         ContactPerson: Text[50];
         EMail: Text[80];
-        Endpoint: Text[20];
         TopBannerVisible: Boolean;
         Step1Visible: Boolean;
         Step2Visible: Boolean;
@@ -363,7 +362,7 @@ page 6414 "ForNAV Peppol Setup Wizard"
                     Setup."Contact Person" := Rec."Contact Person";
                     Setup."E-Mail" := Rec."E-Mail";
                     Setup.Modify();
-                    Setup.SetupOauth(Endpoint);
+                    Setup.SetupOauth(Rec.Endpoint);
                     Rec := Setup;
                     CurrPage.Update();
                 end;

@@ -87,7 +87,6 @@ page 6411 "ForNAV Peppol Oauth API"
         PeppolOauth.ValidateSecretValidTo(SecretValidTo);
         PeppolOauth.ValidateForNAVTenantID(TenantId);
         PeppolOauth.ValidateScope(Scope);
-        PeppolOauth.ValidateEndpoint(Endpoint);
         Setup.Modify(true);
     end;
 }

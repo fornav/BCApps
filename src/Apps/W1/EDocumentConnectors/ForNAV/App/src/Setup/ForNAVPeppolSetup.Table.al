@@ -12,6 +12,8 @@ using System.Automation;
 using System.EMail;
 using System.Environment;
 using System.Globalization;
+using System.Utilities;
+using Microsoft.eServices.EDocument.Service.Participant;
 table 6414 "ForNAV Peppol Setup"
 {
     DataClassification = CustomerContent;
@@ -68,6 +70,18 @@ table 6414 "ForNAV Peppol Setup"
             begin
                 if not IsTemporary() then
                     PeppolOauth.ValidateClientID("Client Id");
+            end;
+        }
+        field(11; "Endpoint"; Text[20])
+        {
+            Caption = 'Endpoint';
+            ToolTip = 'Specifies the Oauth Endpoint. You can get this from your ForNAV partner.';
+            DataClassification = EndUserPseudonymousIdentifiers;
+            Access = Internal;
+
+            trigger OnValidate()
+            begin
+                ValidateEndpoint();
             end;
         }
         field(17; "Oauth Setup Request Sent"; Date)
@@ -241,6 +255,13 @@ table 6414 "ForNAV Peppol Setup"
     var
         CannotGetSetupErr: Label 'Cannot get setup from Peppol API. Contact your ForNAV partner.';
 
+    local procedure ValidateEndpoint()
+    var
+        RegEx: Codeunit Regex;
+    begin
+        Endpoint := CopyStr(RegEx.Replace(Endpoint.ToLower(), '[^a-z0-9]', ''), 1, MaxStrLen(Endpoint));
+    end;
+
     internal procedure SetValues(ValuesObject: JsonObject)
     var
         ValueText: BigText;
@@ -295,7 +316,7 @@ table 6414 "ForNAV Peppol Setup"
         exit(Format(ValueText));
     end;
 
-    internal procedure SetupOauth(NewEndpoint: Text)
+    internal procedure SetupOauth(NewEndpoint: Text[20])
     var
         Setup: Codeunit "ForNAV Peppol Setup";
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
@@ -306,9 +327,10 @@ table 6414 "ForNAV Peppol Setup"
     begin
         // TODO On Prem authentication for Docker
         Setup.ClearAccessToken();
-        if (PeppolOauth.GetClientID() <> '') and (PeppolOauth.GetSecretValidTo() > CurrentDateTime) and (PeppolOauth.GetEndpoint() <> NewEndpoint) then
+        if (PeppolOauth.GetClientID() <> '') and (PeppolOauth.GetSecretValidTo() > CurrentDateTime) and (PeppolOauth.GetEndpoint() = NewEndpoint) then
             if PeppolOauth.TryTestOAuth() then begin
                 Authorized := true;
+                Endpoint := NewEndpoint;
                 Modify();
                 exit;
             end;
@@ -322,7 +344,8 @@ table 6414 "ForNAV Peppol Setup"
         Dlg.Open(DialogLbl);
         ResetForSetup();
         PeppolOauth.SetSetupKey();
-
+        Endpoint := NewEndpoint;
+        Modify();
         Commit();
 
         if not PeppolOauth.SendSetupRequest(IsSaas, NewEndpoint) then
@@ -342,8 +365,9 @@ table 6414 "ForNAV Peppol Setup"
     var
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
     begin
-        if not PeppolOauth.GetSetupFile(PassCode, "Identification Value") then
-            Error(CannotGetSetupErr);
+        if not PeppolOauth.TryTestOAuth() then
+            if not PeppolOauth.GetSetupFile(PassCode, "Identification Value") then
+                Error(CannotGetSetupErr);
 
         ValidateConnection();
     end;
@@ -371,6 +395,7 @@ table 6414 "ForNAV Peppol Setup"
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
     begin
         PeppolOauth.ResetForSetup();
+        Endpoint := '';
         Clear("Oauth Setup Request Sent");
         Authorized := false;
         "Setup Message" := '';
@@ -380,21 +405,25 @@ table 6414 "ForNAV Peppol Setup"
     internal procedure UpdateFromCompanyInformation()
     var
         CompanyInformation: Record "Company Information";
+        ServiceParticipant: Record "Service Participant";
         WindowsLanguage: Record "Windows Language";
         Country: Record "Country/Region";
         Addr: Text;
     begin
         CompanyInformation.Get();
-        if CompanyInformation."Use GLN in Electronic Document" then begin
-            "Identification Code" := '0088';
-            "Identification Value" := CompanyInformation.GLN;
-        end else begin
-            if Country.Get(CompanyInformation.GetCompanyCountryRegionCode()) then;
-            "Identification Code" := Country."VAT Scheme";
-            "Identification Value" := CompanyInformation."VAT Registration No.";
-        end;
 
-        "Identification Value" := CompanyInformation."VAT Registration No.";
+        case true of
+            CompanyInformation."Use GLN in Electronic Document":
+                begin
+                    "Identification Code" := '0088';
+                    "Identification Value" := CompanyInformation.GLN;
+                end;
+            else begin
+                if Country.Get(CompanyInformation.GetCompanyCountryRegionCode()) then;
+                "Identification Code" := Country."VAT Scheme";
+                "Identification Value" := CompanyInformation."VAT Registration No.";
+            end;
+        end;
 
         Name := CompanyInformation.Name;
         "Phone No." := CompanyInformation."Phone No.";

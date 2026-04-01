@@ -36,6 +36,7 @@ codeunit 6424 "ForNAV Peppol Setup"
 
     internal procedure Send(var HttpClient: HttpClient; Http: Codeunit "Http Message State") Result: integer
     var
+        PeppolOauth: Codeunit "ForNAV Peppol Oauth";
         Handled: Boolean;
         HttpRequestMessage: HttpRequestMessage;
         HttpResponseMessage: HttpResponseMessage;
@@ -50,9 +51,12 @@ codeunit 6424 "ForNAV Peppol Setup"
         if Handled then
             exit(Http.GetHttpResponseMessage().HttpStatusCode);
 
+        if PeppolOauth.GetSecretValidTo() < CreateDateTime(CalcDate('<+2m>', Today), Time) then
+            PeppolOauth.GetNewSecurityKey();
+
         HttpRequestMessage := Http.GetHttpRequestMessage();
         if not AddSecurityHeaders(HttpRequestMessage) then
-            exit(401);
+            exit(407);
         HttpClient.Send(HttpRequestMessage, HttpResponseMessage);
         RemoveSecurityHeaders(HttpRequestMessage);
         Http.SetHttpResponseMessage(HttpResponseMessage);
@@ -126,26 +130,18 @@ codeunit 6424 "ForNAV Peppol Setup"
 
     local procedure AddSecurityHeaders(var HttpRequestMessage: HttpRequestMessage): Boolean
     var
-        PeppolSetup: Record "ForNAV Peppol Setup";
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
         OAuthToken: Codeunit "ForNAV Peppol Oauth Token";
         HttpHeaders: HttpHeaders;
     begin
         RemoveSecurityHeaders(HttpRequestMessage);
         HttpRequestMessage.GetHeaders(HttpHeaders);
-        PeppolSetup.InitSetup();
-
-#if not DEV
-        if PeppolOauth.GetSecretValidTo() < CreateDateTime(CalcDate('<+2m>', Today), Time) then
-            PeppolOauth.GetNewSecurityKey();
-#endif
 
         if (AccessToken.IsEmpty()) or (AccessTokenExpires < CurrentDateTime) then begin
             if not OAuthToken.AcquireTokenWithClientCredentials(PeppolOauth.GetClientID(), PeppolOauth.GetClientSecret(), PeppolOauth.GetOAuthAuthorityUrl(), '', PeppolOauth.GetEndpointScope()) then
                 exit(false);
 
             OAuthToken.GetAccessToken(AccessToken, AccessTokenExpires);
-            PeppolOauth.StoreRoles(OAuthToken.GetRoles());
         end;
 
         if AccessToken.IsEmpty() then
