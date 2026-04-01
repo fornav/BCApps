@@ -13,7 +13,6 @@ using System.EMail;
 using System.Environment;
 using System.Globalization;
 using System.Utilities;
-using Microsoft.eServices.EDocument.Service.Participant;
 table 6414 "ForNAV Peppol Setup"
 {
     DataClassification = CustomerContent;
@@ -93,7 +92,7 @@ table 6414 "ForNAV Peppol Setup"
         field(19; "Setup Message"; Text[2048])
         {
             Caption = 'Setup Message';
-            ToolTip = 'Setup Message from ForNAV. If you have problems with the setup, please contact your ForNAV partner and provide them with this message.';
+            ToolTip = 'Specifies the setup message from ForNAV. If you have problems with the setup, please contact your ForNAV partner and provide them with this message.';
             DataClassification = CustomerContent;
             Access = Internal;
         }
@@ -405,7 +404,6 @@ table 6414 "ForNAV Peppol Setup"
     internal procedure UpdateFromCompanyInformation()
     var
         CompanyInformation: Record "Company Information";
-        ServiceParticipant: Record "Service Participant";
         WindowsLanguage: Record "Windows Language";
         Country: Record "Country/Region";
         Addr: Text;
