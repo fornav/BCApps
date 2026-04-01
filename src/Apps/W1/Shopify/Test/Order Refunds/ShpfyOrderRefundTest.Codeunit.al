@@ -5,6 +5,7 @@
 
 namespace Microsoft.Integration.Shopify.Test;
 
+using Microsoft.Finance.Currency;
 using Microsoft.Integration.Shopify;
 using Microsoft.Inventory.Location;
 using Microsoft.Sales.Document;
@@ -62,7 +63,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         SalesHeader.CalcFields("Amount Including VAT");
         LibraryAssert.AreEqual(RefundHeader."Total Refunded Amount", SalesHeader."Amount Including VAT", 'The SalesHeader."Amount Including VAT" must be equal to RefundHeader."Total Refunded Amount".');
         // Tear down
-        ResetProccesOnRefund(RefundId);
+        ResetProcessOnRefund(RefundId);
     end;
 
     [Test]
@@ -98,7 +99,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         SalesHeader.CalcFields("Amount Including VAT");
         LibraryAssert.AreNearlyEqual(RefundHeader."Total Refunded Amount", SalesHeader."Amount Including VAT", 0.5, 'The SalesHeader."Amount Including VAT" must be equal to RefundHeader."Total Refunded Amount".');
         // Tear down
-        ResetProccesOnRefund(RefundId);
+        ResetProcessOnRefund(RefundId);
     end;
 
     [Test]
@@ -135,7 +136,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         LibraryAssert.AreEqual(RefundHeader."Total Refunded Amount", SalesHeader."Amount Including VAT", 'The SalesHeader."Amount Including VAT" must be equal to RefundHeader."Total Refunded Amount".');
 
         // Tear down
-        ResetProccesOnRefund(RefundId);
+        ResetProcessOnRefund(RefundId);
     end;
 
     [Test]
@@ -169,7 +170,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         asserterror RefundsAPI.VerifyRefundCanCreateCreditMemo(RefundId4);
 
         // [THEN] Only RefundId3 throws an error
-        LibraryAssert.ExpectedError('This refund cannot be used to create a credit memo because it has already been considered during order import and reduced the quantity and amounts of the order. Only refunds with a non-zero refunded amount and related to real item returns can be used to create credit memos.');
+        LibraryAssert.ExpectedError('This refund cannot be used to create a credit memo or return order because it has already been considered during order import and reduced the quantity and amounts of the order. Only refunds with a non-zero refunded amount and related to real item returns can be used to create credit memos or return orders.');
     end;
 
     [Test]
@@ -212,6 +213,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         JRefundLine: JsonObject;
         ReturnLocations: Dictionary of [BigInteger, BigInteger];
         RefundLineId: BigInteger;
+        LineItemId: BigInteger;
         ReturnLocationId: BigInteger;
     begin
         // [SCENARIO] Import refund lines with locations
@@ -221,10 +223,11 @@ codeunit 139611 "Shpfy Order Refund Test"
         RefundId := OrderRefundsHelper.CreateRefundHeader();
         // [GIVEN] Refund Line  response
         RefundLineId := Any.IntegerInRange(100000, 999999);
-        CreateRefundLineResponse(JRefundLine, RefundLineId, 0);
+        LineItemId := Any.IntegerInRange(100000, 999999);
+        CreateRefundLineResponse(JRefundLine, RefundLineId, LineItemId, 0);
         //[GIVEN] Return Locations
         ReturnLocationId := Any.IntegerInRange(100000, 999999);
-        ReturnLocations.Add(RefundLineId, ReturnLocationId);
+        ReturnLocations.Add(LineItemId, ReturnLocationId);
 
         // [WHEN] Execute RefundsAPI.FillInRefundLine
         RefundsAPI.FillInRefundLine(RefundId, JRefundLine, false, ReturnLocations);
@@ -277,6 +280,72 @@ codeunit 139611 "Shpfy Order Refund Test"
         SalesLine.SetRange("Document No.", SalesHeader."No.");
         SalesLine.FindFirst();
         LibraryAssert.AreEqual(Location.Code, SalesLine."Location Code", 'Sales line location not set');
+    end;
+
+    [Test]
+    procedure UnitTestProcessRefundWithPresentmentCurrency()
+    var
+        SalesHeader: Record "Sales Header";
+        SalesLine: Record "Sales Line";
+        Shop: Record "Shpfy Shop";
+        Currency: Record Currency;
+        CurrencyExchangeRate: Record "Currency Exchange Rate";
+        OrderRefundsHelper: Codeunit "Shpfy Order Refunds Helper";
+        LibraryERM: Codeunit "Library - ERM";
+        IReturnRefundProcess: Interface "Shpfy IReturnRefund Process";
+        RefundId: BigInteger;
+        OrderId, OrderLineId : BigInteger;
+        PresentmentCurrencyCode: Code[10];
+        Amount: Decimal;
+        PresentmentAmount: Decimal;
+    begin
+        // [SCENARIO] Create sales credit memo from refund with presentment currency
+        Initialize();
+
+        // [GIVEN] Shop with setup to use presentment currency handling in order processing
+        Shop := InitializeTest.CreateShop();
+        Shop."Currency Handling" := "Shpfy Currency Handling"::"Presentment Currency";
+        Shop.Modify(false);
+        // [GIVEN] Presentment currency
+        PresentmentCurrencyCode := LibraryERM.CreateCurrencyWithRounding();
+        // [GIVEN] Amount and Presentment amount
+        Amount := Any.DecimalInRange(999, 2);
+        Currency.Get(PresentmentCurrencyCode);
+        PresentmentAmount := Round(CurrencyExchangeRate.ExchangeAmtLCYToFCY(
+                WorkDate(),
+                PresentmentCurrencyCode,
+                Amount,
+                CurrencyExchangeRate.ExchangeRate(WorkDate(), PresentmentCurrencyCode)),
+            Currency."Amount Rounding Precision");
+        //[GIVEN] Processed Shopify Order
+        CreateProcessedShopifyOrderWithPresenmentCurrency(
+            OrderId,
+            OrderLineId,
+            Amount,
+            PresentmentCurrencyCode,
+            PresentmentAmount
+        );
+        // [GIVEN] Refund Header with presentment currency and amount
+        RefundId := OrderRefundsHelper.CreateRefundHeaderWithPresentmentCurrency(
+            OrderId,
+            Amount,
+            Shop.Code,
+            PresentmentCurrencyCode,
+            PresentmentAmount);
+        // [GIVEN] Refund line with presenment amount
+        OrderRefundsHelper.CreateRefundLineWithPresentmentCurrency(RefundId, OrderLineId, Amount, PresentmentAmount);
+
+        // [WHEN] Execute create credit memo
+        IReturnRefundProcess := Enum::"Shpfy ReturnRefund ProcessType"::"Auto Create Credit Memo";
+        SalesHeader := IReturnRefundProcess.CreateSalesDocument(Enum::"Shpfy Source Document Type"::Refund, RefundId);
+
+        // [THEN] Sales header has presentment currency
+        LibraryAssert.AreEqual(PresentmentCurrencyCode, SalesHeader."Currency Code", 'Sales header should have presentment currency.');
+        // [THEN] Credit Memo Line with return location is created
+        SalesLine.SetRange("Document Type", SalesHeader."Document Type");
+        SalesLine.SetRange("Document No.", SalesHeader."No.");
+        SalesLine.FindFirst();
+        LibraryAssert.AreEqual(PresentmentAmount, SalesLine.Amount, 'Sales line amount should match presenment amount.')
     end;
 
     [Test]
@@ -341,6 +410,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         // [SCENARIO] Create a Credit Memo from a Shopify Refund where the item is totally refunded.
         Initialize();
         Shop := InitializeTest.CreateShop();
+        Shop."Process Returns As" := "Sales Document Type"::"Credit Memo";
         Shop."Shopify Order No. on Doc. Line" := true;
         Shop.Modify(false);
 
@@ -365,7 +435,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         SalesLine.SetRange(Description, StrSubstNo(ShopifyOrderNoLbl, RefundHeader."Shopify Order No."));
         LibraryAssert.RecordIsNotEmpty(SalesLine);
         // Tear down
-        ResetProccesOnRefund(RefundId);
+        ResetProcessOnRefund(RefundId);
     end;
 
     [Test]
@@ -375,13 +445,16 @@ codeunit 139611 "Shpfy Order Refund Test"
         SalesHeader: Record "Sales Header";
         RefundHeader: Record "Shpfy Refund Header";
         RefundId: BigInteger;
-        IReturnRefundProcess: Interface "Shpfy IReturnRefund Process";
+        IReturnRefundProcess: Interface "Shpfy IReturnRefund Process";        
         CanCreateDocument: Boolean;
         ErrorInfo: ErrorInfo;
+        RefundAccount: Code[20];
     begin
         // [SCENARIO] Create a Credit Memo from a Shopify Refund where only the shipment is refunded.
         Initialize();
         Shop := InitializeTest.CreateShop();
+        Shop."Process Returns As" := "Sales Document Type"::"Credit Memo";
+        RefundAccount := Shop."Refund Account";
         Shop."Refund Account" := '';
         Shop.Modify(false);
 
@@ -404,7 +477,98 @@ codeunit 139611 "Shpfy Order Refund Test"
         LibraryAssert.AreEqual(RefundHeader."Has Processing Error", true, 'RefundHeader."Has Processing Error" must be true');
 
         // Tear down
-        ResetProccesOnRefund(RefundId);
+        ResetProcessOnRefund(RefundId);
+        Shop."Refund Account" := RefundAccount;
+        Shop.Modify(false);
+    end;
+
+    [Test]
+    procedure UnitTestCreateReturnOrder()
+    var
+        SalesHeader: Record "Sales Header";
+        Shop: Record "Shpfy Shop";
+        RefundId: BigInteger;
+        IReturnRefundProcess: Interface "Shpfy IReturnRefund Process";
+        CanCreateDocument: Boolean;
+        ErrorInfo: ErrorInfo;
+    begin
+        // [SCENARIO] Create a Return Order from a Shopify Refund where only the shipment is refunded.
+        Initialize();
+
+        // [GIVEN] Shop configured to process returns as Return Order
+        Shop := InitializeTest.CreateShop();
+        Shop."Process Returns As" := "Sales Document Type"::"Return Order";
+        Shop.Modify(false);
+
+        // [GIVEN] Set the process of the document: "Auto Create Credit Memo";
+        IReturnRefundProcess := Enum::"Shpfy ReturnRefund ProcessType"::"Auto Create Credit Memo";
+        // [GIVEN] The document type Refund
+        // [GIVEN] The RefundId of the refund for creating the Return Order.
+        RefundId := ShopifyIds.Get('Refund').Get(2);
+
+        // [WHEN] Execute IReturnRefundProcess.CanCreateSalesDocumentFor(Enum::"Shpfy Source Document Type"::Refund, RefundId, errorInfo)
+        CanCreateDocument := IReturnRefundProcess.CanCreateSalesDocumentFor(Enum::"Shpfy Source Document Type"::Refund, RefundId, errorInfo);
+        // [THEN] CanCreateDocument must be true
+        LibraryAssert.IsTrue(CanCreateDocument, 'The result of IReturnRefundProcess.CanCreateSalesDocumentFor must be true');
+
+        // [WHEN] Execute IReturnRefundProcess.CreateSalesDocument(Enum::"Shpfy Source Document Type"::Refund, RefundId)
+        SalesHeader := IReturnRefundProcess.CreateSalesDocument(Enum::"Shpfy Source Document Type"::Refund, RefundId);
+        // [THEN] SalesHeader."Document Type" = Enum::"Sales Document Type"::"Return Order"
+        LibraryAssert.AreEqual(Enum::"Sales Document Type"::"Return Order", SalesHeader."Document Type", 'SalesHeader."Document Type" must be a Return Order');
+        // Tear down
+        ResetProcessOnRefund(RefundId);
+    end;
+
+    [Test]
+    procedure UnitTestConsiderRefundsSubtractsTaxFromTotalAmount()
+    var
+        OrderHeader: Record "Shpfy Order Header";
+        Shop: Record "Shpfy Shop";
+        OrderRefundsHelper: Codeunit "Shpfy Order Refunds Helper";
+        ImportOrder: Codeunit "Shpfy Import Order";
+        OrderId: BigInteger;
+        OrderLineId: BigInteger;
+        RefundId: BigInteger;
+        SubtotalAmount: Decimal;
+        VATAmount: Decimal;
+        RefundSubtotalAmount: Decimal;
+        RefundTaxAmount: Decimal;
+    begin
+        // [SCENARIO] Total Amount is correctly reduced by both subtotal and tax when processing refunds.
+        Initialize();
+
+        // [GIVEN] Amounts for an order with tax
+        SubtotalAmount := 1200;
+        VATAmount := 300;
+        RefundSubtotalAmount := 1000;
+        RefundTaxAmount := 250;
+
+        // [GIVEN] A processed Shopify order with Total Amount = Subtotal + VAT
+        CreateProcessedShopifyOrderWithVAT(OrderId, OrderLineId, SubtotalAmount, VATAmount);
+
+        // [GIVEN] Shop with "Return and Refund Process" set to "Import Only"
+        Shop := InitializeTest.CreateShop();
+        Shop."Return and Refund Process" := "Shpfy ReturnRefund ProcessType"::"Import Only";
+        Shop.Modify(false);
+
+        // [GIVEN] A refund with both subtotal and tax amounts
+        OrderRefundsHelper.SetDefaultSeed();
+        RefundId := OrderRefundsHelper.CreateRefundHeader(OrderId, 0, RefundSubtotalAmount + RefundTaxAmount, Shop.Code);
+        OrderRefundsHelper.CreateRefundLineWithTaxAmount(RefundId, OrderLineId, RefundSubtotalAmount, RefundTaxAmount);
+
+        // [WHEN] ConsiderRefundsInQuantityAndAmounts is executed
+        OrderHeader.Get(OrderId);
+        ImportOrder.SetShop(Shop.Code);
+        ImportOrder.ConsiderRefundsInQuantityAndAmounts(OrderHeader);
+
+        // [THEN] Total Amount = original total - (refund subtotal + refund tax)
+        LibraryAssert.AreEqual(SubtotalAmount + VATAmount - RefundSubtotalAmount - RefundTaxAmount, OrderHeader."Total Amount", 'Total Amount must be reduced by refund subtotal and tax.');
+        // [THEN] Presentment Total Amount is also correctly reduced
+        LibraryAssert.AreEqual(SubtotalAmount + VATAmount - RefundSubtotalAmount - RefundTaxAmount, OrderHeader."Presentment Total Amount", 'Presentment Total Amount must be reduced by refund subtotal and tax.');
+        // [THEN] VAT Amount is reduced by refund tax
+        LibraryAssert.AreEqual(VATAmount - RefundTaxAmount, OrderHeader."VAT Amount", 'VAT Amount must be reduced by refund tax.');
+        // [THEN] Subtotal Amount is reduced by refund subtotal
+        LibraryAssert.AreEqual(SubtotalAmount - RefundSubtotalAmount, OrderHeader."Subtotal Amount", 'Subtotal Amount must be reduced by refund subtotal.');
     end;
 
     local procedure Initialize()
@@ -423,7 +587,7 @@ codeunit 139611 "Shpfy Order Refund Test"
         Commit();
     end;
 
-    local procedure ResetProccesOnRefund(ReFundId: Integer)
+    local procedure ResetProcessOnRefund(ReFundId: Integer)
     var
         ShpfyDocLinkToDoc: Record "Shpfy Doc. Link To Doc.";
     begin
@@ -434,9 +598,17 @@ codeunit 139611 "Shpfy Order Refund Test"
 
     local procedure CreateRefundLineResponse(var JRefundLine: JsonObject; RefundLineId: BigInteger; RefundLocationId: BigInteger)
     var
-        RefundLineLbl: Label '{"lineItem": {"id": "gid://shopify/LineItem/%1"}, "quantity": 1, "restockType": "no_restock", "location": {"legacyResourceId": %2}}', Comment = '%1 = RefundLineId, %2 = RefundLocationId', Locked = true;
+        LineItemId: BigInteger;
     begin
-        JRefundLine.ReadFrom(StrSubstNo(RefundLineLbl, RefundLineId, RefundLocationId));
+        LineItemId := Any.IntegerInRange(100000, 999999);
+        CreateRefundLineResponse(JRefundLine, RefundLineId, LineItemId, RefundLocationId);
+    end;
+
+    local procedure CreateRefundLineResponse(var JRefundLine: JsonObject; RefundLineId: BigInteger; LineItemId: BigInteger; RefundLocationId: BigInteger)
+    var
+        RefundLineLbl: Label '{"id": "gid://shopify/RefundLineItem/%1", "lineItem": {"id": "gid://shopify/LineItem/%2"}, "quantity": 1, "restockType": "no_restock", "location": {"legacyResourceId": %3}}', Comment = '%1 = RefundLineId, %2 = LineItemId, %3 = RefundLocationId', Locked = true;
+    begin
+        JRefundLine.ReadFrom(StrSubstNo(RefundLineLbl, RefundLineId, LineItemId, RefundLocationId));
     end;
 
     local procedure CerateProcessedShopifyOrder(var OrderId: BigInteger; var OrderLineId: BigInteger)
@@ -449,6 +621,33 @@ codeunit 139611 "Shpfy Order Refund Test"
         OrderRefundsHelper.ProcessShopifyOrder(OrderId);
     end;
 
+    local procedure CreateProcessedShopifyOrderWithPresenmentCurrency(var OrderId: BigInteger; var OrderLineId: BigInteger; Amount: Decimal; PresentmentCurrencyCode: Code[10]; PresentmentAmount: Decimal)
+    var
+        OrderHeader: Record "Shpfy Order Header";
+        OrderLine: Record "Shpfy Order Line";
+        OrderRefundsHelper: Codeunit "Shpfy Order Refunds Helper";
+    begin
+        OrderRefundsHelper.SetDefaultSeed();
+        OrderId := OrderRefundsHelper.CreateShopifyOrder();
+        OrderHeader.Get(OrderId);
+        OrderHeader."Total Amount" := Amount;
+        OrderHeader."Subtotal Amount" := Amount;
+        OrderHeader."Presentment Currency Code" := PresentmentCurrencyCode;
+        OrderHeader."Presentment Total Amount" := PresentmentAmount;
+        OrderHeader."Presentment Subtotal Amount" := PresentmentAmount;
+        OrderHeader."Shipping Charges Amount" := 0;
+        OrderHeader."VAT Amount" := 0;
+        OrderHeader.Processed := true;
+        OrderHeader."Processed Currency Handling" := "Shpfy Currency Handling"::"Presentment Currency";
+        OrderHeader.Modify(false);
+
+        OrderLineId := OrderRefundsHelper.CreateOrderLine(OrderId, 10000, Any.IntegerInRange(100000, 999999), Any.IntegerInRange(100000, 999999));
+        OrderLine.Get(OrderId, OrderLineId);
+        OrderLine."Presentment Unit Price" := PresentmentAmount;
+        OrderLine.Modify(false);
+        OrderRefundsHelper.ProcessShopifyOrder(OrderId);
+    end;
+
     local procedure CreateShopifyReturn(var ReturnId: BigInteger; OrderId: BigInteger)
     var
         OrderRefundsHelper: Codeunit "Shpfy Order Refunds Helper";
@@ -457,6 +656,28 @@ codeunit 139611 "Shpfy Order Refund Test"
         ReturnId := OrderRefundsHelper.CreateReturn(OrderId);
         OrderRefundsHelper.CreateReturnLine(ReturnId, OrderId, '');
         OrderRefundsHelper.CreateUnverifiedReturnLine(ReturnId, '');
+    end;
+
+    local procedure CreateProcessedShopifyOrderWithVAT(var OrderId: BigInteger; var OrderLineId: BigInteger; SubtotalAmount: Decimal; VATAmount: Decimal)
+    var
+        OrderHeader: Record "Shpfy Order Header";
+        OrderRefundsHelper: Codeunit "Shpfy Order Refunds Helper";
+    begin
+        OrderRefundsHelper.SetDefaultSeed();
+        OrderId := OrderRefundsHelper.CreateShopifyOrder();
+        OrderHeader.Get(OrderId);
+        OrderHeader."Subtotal Amount" := SubtotalAmount;
+        OrderHeader."Total Amount" := SubtotalAmount + VATAmount;
+        OrderHeader."VAT Amount" := VATAmount;
+        OrderHeader."Presentment Subtotal Amount" := SubtotalAmount;
+        OrderHeader."Presentment Total Amount" := SubtotalAmount + VATAmount;
+        OrderHeader."Presentment VAT Amount" := VATAmount;
+        OrderHeader."Shipping Charges Amount" := 0;
+        OrderHeader.Processed := true;
+        OrderHeader.Modify(false);
+
+        OrderLineId := OrderRefundsHelper.CreateOrderLine(OrderId, 10000, Any.IntegerInRange(100000, 999999), Any.IntegerInRange(100000, 999999));
+        OrderRefundsHelper.ProcessShopifyOrder(OrderId);
     end;
 
     local procedure CreateLocation(var Location: Record Location)

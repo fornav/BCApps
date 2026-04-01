@@ -5,6 +5,7 @@
 
 namespace Microsoft.Integration.Shopify;
 
+using Microsoft.CRM.Contact;
 using Microsoft.Inventory.Item;
 using Microsoft.Sales.Customer;
 using Microsoft.Sales.Document;
@@ -61,6 +62,14 @@ page 30113 "Shpfy Order"
                     ApplicationArea = All;
                     ShowMandatory = true;
                     ToolTip = 'Specifies the number of the customer who will buy the products.';
+                }
+                field(SellToContactNo; Rec."Sell-to Contact No.")
+                {
+                    ApplicationArea = All;
+                    Caption = 'Sell-to Contact No.';
+                    TableRelation = Contact;
+                    Visible = false;
+                    ToolTip = 'Specifies the number of the contact person at the sell-to customer.';
                 }
                 field(ShippingMethod; Rec."Shipping Method Code")
                 {
@@ -224,6 +233,12 @@ page 30113 "Shpfy Order"
                     Importance = Additional;
                     ToolTip = 'Specifies whether the order has had any edits applied.';
                 }
+                field(UseShopifyOrderNo; Rec."Use Shopify Order No.")
+                {
+                    ApplicationArea = All;
+                    Importance = Additional;
+                    Editable = not Rec.Processed;
+                }
                 field(Processed; Rec.Processed)
                 {
                     ApplicationArea = All;
@@ -347,12 +362,62 @@ page 30113 "Shpfy Order"
                     Editable = false;
                     ToolTip = 'Specifies if any tax line on the order is liable to be charged by the sales channel.';
                 }
-
                 field(CurrencyCode; Rec."Currency Code")
                 {
                     ApplicationArea = All;
                     Editable = false;
                     ToolTip = 'Specifies the currency of amounts on the document.';
+                }
+                group(ProcessedCurrHandling)
+                {
+                    ShowCaption = false;
+                    Visible = Rec.Processed;
+
+                    field(ProcessedCurrencyHandling; Rec."Processed Currency Handling")
+                    {
+                        ApplicationArea = All;
+                        Caption = 'Processed Currency Handling';
+                        Importance = Additional;
+                        Editable = false;
+                        ToolTip = 'Specifies how the currency was handled when processing the order.';
+                    }
+                }
+                group(PresentmentCurrency)
+                {
+                    ShowCaption = false;
+                    Visible = PresentmentVisible;
+
+                    field("Presentment Subtotal Amount"; Rec."Presentment Subtotal Amount")
+                    {
+                        ApplicationArea = All;
+                        Editable = false;
+                    }
+                    field("Pres. Shipping Charges Amount"; Rec."Pres. Shipping Charges Amount")
+                    {
+                        ApplicationArea = All;
+                        Editable = false;
+                    }
+                    field("Presentment Total Amount"; Rec."Presentment Total Amount")
+                    {
+                        ApplicationArea = All;
+                        Editable = false;
+                        Importance = Promoted;
+                    }
+                    field("Presentment VAT Amount"; Rec."Presentment VAT Amount")
+                    {
+                        ApplicationArea = All;
+                        Editable = false;
+                    }
+                    field("Presentment Discount Amount"; Rec."Presentment Discount Amount")
+                    {
+                        ApplicationArea = All;
+                        Editable = false;
+                    }
+                    field("Presentment Currency Code"; Rec."Presentment Currency Code")
+                    {
+                        ApplicationArea = All;
+                        Editable = false;
+                    }
                 }
             }
             group(ShippingAndBilling)
@@ -410,6 +475,14 @@ page 30113 "Shpfy Order"
                         Caption = 'Country Name';
                         Editable = false;
                         ToolTip = 'Specifies the name of the customer''s country/region';
+                    }
+                    field(ShipToContactNo; Rec."Ship-to Contact No.")
+                    {
+                        ApplicationArea = All;
+                        Caption = 'Ship-to Contact No.';
+                        TableRelation = Contact;
+                        Visible = false;
+                        ToolTip = 'Specifies the number of the contact person at the ship-to address.';
                     }
                 }
                 group(BillTo)
@@ -473,6 +546,14 @@ page 30113 "Shpfy Order"
                         Caption = 'Country Name';
                         Editable = false;
                         ToolTip = 'Specifies the name of the customer''s country/region.';
+                    }
+                    field(BillToContactNo; Rec."Bill-to Contact No.")
+                    {
+                        ApplicationArea = All;
+                        Caption = 'Bill-to Contact No.';
+                        TableRelation = Contact;
+                        Visible = false;
+                        ToolTip = 'Specifies the number of the contact person at the bill-to customer.';
                     }
                 }
             }
@@ -593,6 +674,7 @@ page 30113 "Shpfy Order"
 
                     trigger OnAction();
                     var
+                        Shop: Record "Shpfy Shop";
                         ShopifyOrderHeader: Record "Shpfy Order Header";
                         ProcessShopifyOrders: Codeunit "Shpfy Process Orders";
                     begin
@@ -604,6 +686,8 @@ page 30113 "Shpfy Order"
                             Commit();
                             ShopifyOrderHeader.Get(Rec."Shopify Order Id");
                             ShopifyOrderHeader.SetRecFilter();
+                            Shop.Get(Rec."Shop Code");
+                            ProcessShopifyOrders.SetShop(Shop);
                             ProcessShopifyOrders.ProcessShopifyOrders(ShopifyOrderHeader);
                             Rec.Get(Rec."Shopify Order Id");
                         end;
@@ -973,10 +1057,14 @@ page 30113 "Shpfy Order"
                     OrderLine.SetRange("Shopify Order Id", Rec."Shopify Order Id");
                     if OrderLine.FindSet() then
                         repeat
-                            FilterTxt += Format(OrderLine."Line Id") + '|';
+                            if FilterTxt <> '' then
+                                FilterTxt += '|';
+                            FilterTxt += Format(OrderLine."Line Id");
                         until OrderLine.Next() = 0;
-                    FilterTxt := FilterTxt.TrimEnd('|');
-                    TaxLine.SetFilter("Parent Id", FilterTxt);
+                    if FilterTxt = '' then
+                        TaxLine.SetRange("Parent Id", 0)
+                    else
+                        TaxLine.SetFilter("Parent Id", FilterTxt);
                     Page.Run(Page::"Shpfy Order Tax Lines", TaxLine);
                 end;
             }
@@ -993,13 +1081,19 @@ page 30113 "Shpfy Order"
         OrderCancelFailedErr: Label 'Specifies the order could not be cancelled. You can see the error message from Shopify Log Entries.';
         LogEntriesLbl: Label 'Log Entries';
         WorkDescription: Text;
+        TotalAmount, SubtotalAmount : Decimal;
+        PresentmentVisible: Boolean;
 
     trigger OnAfterGetRecord()
     begin
+        SetPresentmentCurrencyVisibility();
         WorkDescription := Rec.GetWorkDescription();
     end;
 
-    trigger OnOpenPage()
+    local procedure SetPresentmentCurrencyVisibility()
     begin
+        PresentmentVisible := Rec.IsPresentmentCurrencyOrder();
+
+        CurrPage.ShopifyOrderLines.Page.SetShowPresentmentCurrency(PresentmentVisible);
     end;
 }

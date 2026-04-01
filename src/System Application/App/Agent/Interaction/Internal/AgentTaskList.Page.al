@@ -5,10 +5,8 @@
 
 namespace System.Agents;
 
+using System.Agents.TaskPane;
 using System.Environment.Consumption;
-
-#pragma warning disable AS0032 
-#pragma warning disable AS0050
 
 page 4300 "Agent Task List"
 {
@@ -16,7 +14,7 @@ page 4300 "Agent Task List"
     ApplicationArea = All;
     UsageCategory = Administration;
     SourceTable = "Agent Task";
-    Caption = 'Agent Tasks (Preview)';
+    Caption = 'Agent Tasks', Comment = 'Agent Tasks in this page should be translated as Tasks that AI agents were assigned.';
     InsertAllowed = false;
     ModifyAllowed = false;
     DeleteAllowed = false;
@@ -35,6 +33,15 @@ page 4300 "Agent Task List"
                 field(TaskID; Rec.ID)
                 {
                     Caption = 'Task ID';
+                    Editable = false;
+                    ExtendedDatatype = Task;
+
+                    trigger OnDrillDown()
+                    var
+                        TaskPane: Codeunit "Task Pane";
+                    begin
+                        TaskPane.ShowTask(Rec);
+                    end;
                 }
                 field(Title; Rec.Title)
                 {
@@ -83,6 +90,13 @@ page 4300 "Agent Task List"
                 {
                     Caption = 'Agent';
                     ToolTip = 'Specifies the agent that is associated with the task.';
+
+                    trigger OnDrillDown()
+                    var
+                        TaskPane: Codeunit "Task Pane";
+                    begin
+                        TaskPane.ShowAgent(Rec."Agent User Security ID");
+                    end;
                 }
                 field(CreatedByID; Rec."Created By")
                 {
@@ -193,9 +207,9 @@ page 4300 "Agent Task List"
 
     trigger OnOpenPage()
     var
-        AgentImpl: Codeunit "Agent Impl.";
+        AgentSystemPermissions: Codeunit "Agent System Permissions";
     begin
-        ConsumedCreditsVisible := AgentImpl.CanShowMonetizationData();
+        ConsumedCreditsVisible := AgentSystemPermissions.CurrentUserCanSeeConsumptionData();
     end;
 
     trigger OnAfterGetRecord()
@@ -246,5 +260,3 @@ page 4300 "Agent Task List"
         ConsumedCredits: Decimal;
         ConsumedCreditsVisible: Boolean;
 }
-#pragma warning restore AS0050
-#pragma warning restore AS0032

@@ -21,7 +21,42 @@ codeunit 30316 "Shpfy Metafield API"
         CommunicationMgt.SetShop(Shop);
     end;
 
+    local procedure SetShop(ShopCode: Code[20])
+    begin
+        Shop.Get(ShopCode);
+        SetShop(Shop);
+    end;
+
     #region To Shopify
+    internal procedure SyncMetafieldToShopify(var Metafield: Record "Shpfy Metafield"; ShopCode: Code[20]): BigInteger
+    var
+        UserErrorOnShopifyErr: Label 'Something went wrong while sending the metafield to Shopify. Check Shopify Log Entries for more details.';
+        GraphQuery: TextBuilder;
+        JResponse: JsonToken;
+        JMetafields: JsonArray;
+        JUserErrors: JsonArray;
+        JItem: JsonToken;
+    begin
+        SetShop(ShopCode);
+        CreateMetafieldQuery(Metafield, GraphQuery);
+        JResponse := UpdateMetafields(GraphQuery.ToText());
+
+        JsonHelper.GetJsonArray(JResponse, JUserErrors, 'data.metafieldsSet.userErrors');
+
+        if JUserErrors.Count() = 0 then begin
+            JsonHelper.GetJsonArray(JResponse, JMetafields, 'data.metafieldsSet.metafields');
+            JMetafields.Get(0, JItem);
+            exit(JsonHelper.GetValueAsBigInteger(JItem, 'legacyResourceId'));
+        end else
+            Error(UserErrorOnShopifyErr);
+    end;
+
+    internal procedure SyncMetafieldsToShopify(ParentTableNo: Integer; OwnerId: BigInteger; ShopCode: Code[20])
+    begin
+        SetShop(ShopCode);
+        CreateOrUpdateMetafieldsInShopify(ParentTableNo, OwnerId);
+    end;
+
     /// <summary>
     /// Creates or updates the metafields in Shopify.
     /// </summary>
@@ -111,7 +146,7 @@ codeunit 30316 "Shpfy Metafield API"
         Parameters: Dictionary of [Text, Text];
     begin
         Parameters.Add('Metafields', MetafieldsQuery);
-        JResponse := CommunicationMgt.ExecuteGraphQL(Enum::"Shpfy GraphQL Type"::MetafieldSet, Parameters);
+        JResponse := CommunicationMgt.ExecuteGraphQL(Enum::"Shpfy GraphQL Type"::Metafields_MetafieldSet, Parameters);
     end;
 
     /// <summary>
@@ -177,6 +212,12 @@ codeunit 30316 "Shpfy Metafield API"
         DeleteUnusedMetafields(MetafieldIds);
     end;
 
+    internal procedure GetMetafieldDefinitions(ParentTableNo: Integer; OwnerId: BigInteger; ShopCode: Code[20])
+    begin
+        SetShop(ShopCode);
+        GetMetafieldDefinitions(ParentTableNo, OwnerId);
+    end;
+
     /// <summary>
     /// Retrieves the metafield definitions from Shopify.
     /// </summary>
@@ -186,7 +227,7 @@ codeunit 30316 "Shpfy Metafield API"
     ///</remarks>
     /// <param name="ParentTableNo">Table id of the parent resource.</param>
     /// <param name="OwnerId">Id of the parent resource.</param>
-    internal procedure GetMetafieldDefinitions(ParentTableNo: Integer; OwnerId: BigInteger)
+    local procedure GetMetafieldDefinitions(ParentTableNo: Integer; OwnerId: BigInteger)
     var
         Metafield: Record "Shpfy Metafield";
         OwnerType: Enum "Shpfy Metafield Owner Type";
@@ -198,7 +239,7 @@ codeunit 30316 "Shpfy Metafield API"
     begin
         OwnerType := Metafield.GetOwnerType(ParentTableNo);
         Parameters.Add('OwnerType', UpperCase(OwnerType.Names().Get(OwnerType.Ordinals.IndexOf(OwnerType.AsInteger()))));
-        JResponse := CommunicationMgt.ExecuteGraphQL(Enum::"Shpfy GraphQL Type"::GetMetafieldDefinitions, Parameters);
+        JResponse := CommunicationMgt.ExecuteGraphQL(Enum::"Shpfy GraphQL Type"::Metafields_GetMetafieldDefinitions, Parameters);
 
         if JsonHelper.GetJsonArray(JResponse, JMetafields, 'data.metafieldDefinitions.edges') then
             foreach JMetafield in JMetafields do begin

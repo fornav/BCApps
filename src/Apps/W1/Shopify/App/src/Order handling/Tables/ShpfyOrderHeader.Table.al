@@ -505,6 +505,7 @@ table 30118 "Shpfy Order Header"
         field(104; "Presentment Currency Code"; Code[10])
         {
             Caption = 'Presentment Currency Code';
+            ToolTip = 'Specifies the presentment currency of amounts on the document.';
             Editable = false;
         }
         field(105; Unpaid; Boolean)
@@ -530,6 +531,7 @@ table 30118 "Shpfy Order Header"
         field(109; "Presentment Total Amount"; Decimal)
         {
             Caption = 'Presentment Total Amount';
+            ToolTip = 'Specifies the sum of the line amounts on all lines in the document minus any discount amounts plus the shipping costs in presentment currency.';
             DataClassification = SystemMetadata;
             AutoFormatType = 1;
             AutoFormatExpression = "Presentment Currency Code";
@@ -537,6 +539,7 @@ table 30118 "Shpfy Order Header"
         field(110; "Presentment Subtotal Amount"; Decimal)
         {
             Caption = 'Presentment Subtotal Amount';
+            ToolTip = 'Specifies the sum of the line amounts on all lines in the document minus any discount amounts in presentment currency.';
             DataClassification = SystemMetadata;
             AutoFormatType = 1;
             AutoFormatExpression = "Presentment Currency Code";
@@ -544,13 +547,15 @@ table 30118 "Shpfy Order Header"
         field(111; "Presentment VAT Amount"; Decimal)
         {
             Caption = 'Presentment VAT Amount';
+            ToolTip = 'Specifies the sum of the line amounts on all lines in the document minus any discount amounts plus the shipping costs in presentment currency.';
             DataClassification = SystemMetadata;
             AutoFormatType = 1;
             AutoFormatExpression = "Presentment Currency Code";
         }
         field(112; "Presentment Discount Amount"; Decimal)
         {
-            Caption = 'Discount Amount';
+            Caption = 'Presentment Discount Amount';
+            ToolTip = 'Specifies the sum of all discount amount on all lines in the document in presentment currency.';
             DataClassification = SystemMetadata;
             AutoFormatType = 1;
             AutoFormatExpression = "Presentment Currency Code";
@@ -565,6 +570,7 @@ table 30118 "Shpfy Order Header"
         field(114; "Pres. Shipping Charges Amount"; Decimal)
         {
             Caption = 'Presentment Shipping Charges Amount';
+            ToolTip = 'Specifies the amount of the shipping cost in presentment currency.';
             DataClassification = SystemMetadata;
             AutoFormatType = 1;
             AutoFormatExpression = "Presentment Currency Code";
@@ -683,6 +689,12 @@ table 30118 "Shpfy Order Header"
             FieldClass = FlowField;
             CalcFormula = exist("Shpfy Order Tax Line" where("Parent Id" = field("Shopify Order Id"), "Channel Liable" = const(true)));
         }
+        field(135; "Use Shopify Order No."; Boolean)
+        {
+            Caption = 'Use Shopify Order No.';
+            DataClassification = SystemMetadata;
+            ToolTip = 'Specifies whether the Shopify order number is used as the document number for this specific order.';
+        }
         field(500; "Shop Code"; Code[20])
         {
             Caption = 'Shop Code';
@@ -724,6 +736,14 @@ table 30118 "Shpfy Order Header"
             Caption = 'Sell-to Customer No.';
             DataClassification = SystemMetadata;
             TableRelation = Customer;
+
+            trigger OnValidate()
+            var
+                OrderMapping: Codeunit "Shpfy Order Mapping";
+            begin
+                "Sell-to Contact No." := OrderMapping.FindContactNo("Sell-to Contact Name", "Sell-to Customer No.");
+                "Ship-to Contact No." := OrderMapping.FindContactNo("Ship-to Contact Name", "Sell-to Customer No.");
+            end;
         }
         field(1001; "Sales Order No."; Code[20])
         {
@@ -790,6 +810,13 @@ table 30118 "Shpfy Order Header"
             Caption = 'Bill-to Customer No.';
             DataClassification = CustomerContent;
             TableRelation = Customer;
+
+            trigger OnValidate()
+            var
+                OrderMapping: Codeunit "Shpfy Order Mapping";
+            begin
+                "Bill-to Contact No." := OrderMapping.FindContactNo("Bill-to Contact Name", "Bill-to Customer No.");
+            end;
         }
         field(1012; "Shipping Method Code"; Code[10])
         {
@@ -854,6 +881,18 @@ table 30118 "Shpfy Order Header"
             Caption = 'Shipping Agent Service Code';
             TableRelation = "Shipping Agent Services".Code where("Shipping Agent Code" = field("Shipping Agent Code"));
         }
+        field(1023; "Retail Location Id"; BigInteger)
+        {
+            Caption = 'Retail Location Id';
+            DataClassification = SystemMetadata;
+            Editable = false;
+        }
+        field(1024; "Retail Location Name"; Text[250])
+        {
+            Caption = 'Retail Location Name';
+            DataClassification = SystemMetadata;
+            Editable = false;
+        }
         field(1030; "Payment Terms Type"; Code[20])
         {
             DataClassification = CustomerContent;
@@ -868,6 +907,12 @@ table 30118 "Shpfy Order Header"
         {
             Caption = 'Salesperson Code';
             DataClassification = CustomerContent;
+        }
+        field(1060; "Processed Currency Handling"; Enum "Shpfy Currency Handling")
+        {
+            Caption = 'Processed Currency Handling';
+            DataClassification = SystemMetadata;
+            Editable = false;
         }
     }
     keys
@@ -966,6 +1011,27 @@ table 30118 "Shpfy Order Header"
         DocLinkToBCDoc.SetRange("Shopify Document Id", Rec."Shopify Order Id");
         DocLinkToBCDoc.SetCurrentKey("Shopify Document Type", "Shopify Document Id");
         exit(Rec.Processed or not DocLinkToBCDoc.IsEmpty);
+    end;
+
+    internal procedure IsPresentmentCurrencyOrder(): Boolean
+    begin
+        if Rec.IsProcessed() then
+            exit(IsOrderUsingPresentmentCurrencyHandling())
+        else
+            exit(IsShopUsingPresentmentCurrencyHandling());
+    end;
+
+    local procedure IsOrderUsingPresentmentCurrencyHandling(): Boolean
+    begin
+        exit(Rec."Processed Currency Handling" = "Shpfy Currency Handling"::"Presentment Currency");
+    end;
+
+    local procedure IsShopUsingPresentmentCurrencyHandling(): Boolean
+    var
+        Shop: Record "Shpfy Shop";
+    begin
+        Shop.Get(Rec."Shop Code");
+        exit(Shop."Currency Handling" = "Shpfy Currency Handling"::"Presentment Currency");
     end;
 
 }

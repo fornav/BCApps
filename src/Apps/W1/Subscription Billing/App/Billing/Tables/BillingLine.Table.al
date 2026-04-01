@@ -177,6 +177,11 @@ table 8061 "Billing Line"
             Caption = 'Billing Reference Date Changed';
             ToolTip = 'Specifies whether the billing period has been adjusted manually. This is taken into account by the period calculation and may have an effect on the creation of future billing proposals.';
         }
+        field(70; "Billing Error Log Entry No."; Integer)
+        {
+            Caption = 'Billing Error Log Entry No.';
+            ToolTip = 'Specifies the entry number of the related billing error log, if any.';
+        }
         field(100; "Billing Template Code"; Code[20])
         {
             Caption = 'Code';
@@ -273,7 +278,8 @@ table 8061 "Billing Line"
     var
         ServiceCommitment: Record "Subscription Line";
     begin
-        GetServiceCommitment(ServiceCommitment);
+        if not GetServiceCommitment(ServiceCommitment) then
+            exit;
 
         OnBeforeUpdateNextBillingDateInResetSubscriptionLineNextBillingDate(ServiceCommitment);
         if ("Document Type" = "Document Type"::"Credit Memo") and ("Correction Document Type" <> "Rec. Billing Document Type"::None) then
@@ -495,9 +501,9 @@ table 8061 "Billing Line"
     begin
     end;
 
-    local procedure GetServiceCommitment(var ServiceCommitment: Record "Subscription Line")
+    internal procedure GetServiceCommitment(var ServiceCommitment: Record "Subscription Line"): Boolean
     begin
-        ServiceCommitment.Get("Subscription Line Entry No.");
+        exit(ServiceCommitment.Get("Subscription Line Entry No."));
     end;
 
     local procedure UpdateNextBillingDateFromUsageDataMetadata(var ServiceCommitment: Record "Subscription Line")

@@ -106,8 +106,10 @@ page 8068 "Customer Contract Line Subp."
 
                     trigger OnValidate()
                     begin
-                        if not Rec.IsCommentLine() then
+                        if not Rec.IsCommentLine() then begin
+                            Rec.GetServiceObject(ServiceObject);
                             CurrPage.Update(false);
+                        end;
                     end;
 
                     trigger OnAssistEdit()
@@ -132,6 +134,13 @@ page 8068 "Customer Contract Line Subp."
                 field("Service Commitment Description"; Rec."Subscription Line Description")
                 {
                     ToolTip = 'Specifies the description of the Subscription Line.';
+                    trigger OnValidate()
+                    begin
+                        if not Rec.IsCommentLine() then begin
+                            Rec.GetServiceCommitment(ServiceCommitment);
+                            CurrPage.Update(false);
+                        end;
+                    end;
                 }
                 field("Service Object Quantity"; ContractLineQty)
                 {
@@ -159,6 +168,8 @@ page 8068 "Customer Contract Line Subp."
                     BlankZero = true;
                     Editable = not IsCommentLineEditable;
                     Enabled = not IsCommentLineEditable;
+                    AutoFormatType = 2;
+                    AutoFormatExpression = ServiceCommitment."Currency Code";
 
                     trigger OnValidate()
                     begin
@@ -173,6 +184,8 @@ page 8068 "Customer Contract Line Subp."
                     BlankZero = true;
                     Editable = not IsCommentLineEditable;
                     Enabled = not IsCommentLineEditable;
+                    DecimalPlaces = 0 : 5;
+                    AutoFormatType = 0;
 
                     trigger OnValidate()
                     begin
@@ -182,6 +195,9 @@ page 8068 "Customer Contract Line Subp."
                 field("Unit Cost (LCY)"; ServiceCommitment."Unit Cost (LCY)")
                 {
                     ToolTip = 'Specifies the unit cost of the item.';
+                    AutoFormatType = 2;
+                    AutoFormatExpression = '';
+
                     trigger OnValidate()
                     begin
                         UpdateServiceCommitmentOnPage(ServiceCommitment.FieldNo("Unit Cost (LCY)"));
@@ -193,6 +209,8 @@ page 8068 "Customer Contract Line Subp."
                     ToolTip = 'Specifies the price of the Subscription Line with quantity of 1 in the billing period. The price is calculated from Base Price and Base Price %.';
                     Editable = false;
                     BlankZero = true;
+                    AutoFormatType = 2;
+                    AutoFormatExpression = ServiceCommitment."Currency Code";
                 }
                 field("Price (LCY)"; ServiceCommitment."Price (LCY)")
                 {
@@ -202,6 +220,8 @@ page 8068 "Customer Contract Line Subp."
                     BlankZero = true;
                     Editable = not IsCommentLineEditable;
                     Enabled = not IsCommentLineEditable;
+                    AutoFormatType = 2;
+                    AutoFormatExpression = '';
 
                     trigger OnValidate()
                     begin
@@ -217,6 +237,8 @@ page 8068 "Customer Contract Line Subp."
                     MaxValue = 100;
                     Editable = (not IsCommentLineEditable) and (not IsDiscountLine);
                     Enabled = (not IsCommentLineEditable) and (not IsDiscountLine);
+                    DecimalPlaces = 0 : 5;
+                    AutoFormatType = 0;
 
                     trigger OnValidate()
                     begin
@@ -231,6 +253,8 @@ page 8068 "Customer Contract Line Subp."
                     MinValue = 0;
                     Editable = (not IsCommentLineEditable) and (not IsDiscountLine);
                     Enabled = (not IsCommentLineEditable) and (not IsDiscountLine);
+                    AutoFormatType = 1;
+                    AutoFormatExpression = ServiceCommitment."Currency Code";
 
                     trigger OnValidate()
                     begin
@@ -245,6 +269,9 @@ page 8068 "Customer Contract Line Subp."
                     BlankZero = true;
                     Editable = (not IsCommentLineEditable) and (not IsDiscountLine);
                     Enabled = (not IsCommentLineEditable) and (not IsDiscountLine);
+                    AutoFormatType = 1;
+                    AutoFormatExpression = '';
+
                     trigger OnValidate()
                     begin
                         UpdateServiceCommitmentOnPage(ServiceCommitment.FieldNo("Discount Amount (LCY)"));
@@ -257,6 +284,8 @@ page 8068 "Customer Contract Line Subp."
                     BlankZero = true;
                     Editable = not IsCommentLineEditable;
                     Enabled = not IsCommentLineEditable;
+                    AutoFormatType = 1;
+                    AutoFormatExpression = ServiceCommitment."Currency Code";
 
                     trigger OnValidate()
                     begin
@@ -271,6 +300,8 @@ page 8068 "Customer Contract Line Subp."
                     BlankZero = true;
                     Editable = not IsCommentLineEditable;
                     Enabled = not IsCommentLineEditable;
+                    AutoFormatType = 1;
+                    AutoFormatExpression = '';
 
                     trigger OnValidate()
                     begin
@@ -281,6 +312,8 @@ page 8068 "Customer Contract Line Subp."
                 {
                     Caption = 'Billing Base Period';
                     ToolTip = 'Specifies for which period the Amount is valid. If you enter 1M here, a period of one month, or 12M, a period of 1 year, to which Amount refers to.';
+                    Editable = not IsCommentLineEditable;
+                    Enabled = not IsCommentLineEditable;
 
                     trigger OnValidate()
                     begin
@@ -364,7 +397,7 @@ page 8068 "Customer Contract Line Subp."
                 field("Extension Term"; ServiceCommitment."Extension Term")
                 {
                     Caption = 'Subsequent Term';
-                    ToolTip = 'Specifies a date formula for automatic renewal after initial term and the rhythm of the update of "Notice possible to" and "Term Until". If the field is empty and the initial term or notice period is filled, the end of Subscription Line is automatically set to the end of the initial term or notice period.';
+                    ToolTip = 'Specifies a date formula for automatic renewal after initial term and the rhythm of the update of "Notice possible to" and "Term Until".';
                     Editable = false;
                     Visible = false;
                 }
@@ -445,6 +478,8 @@ page 8068 "Customer Contract Line Subp."
                     BlankZero = true;
                     Editable = not IsCommentLineEditable;
                     Enabled = not IsCommentLineEditable;
+                    DecimalPlaces = 0 : 15;
+                    AutoFormatType = 0;
 
                     trigger OnValidate()
                     begin
@@ -462,6 +497,50 @@ page 8068 "Customer Contract Line Subp."
                     trigger OnValidate()
                     begin
                         UpdateServiceCommitmentOnPage(ServiceCommitment.FieldNo("Currency Factor Date"));
+                    end;
+                }
+                field("Shortcut Dimension 1 Code"; ServiceCommitment."Shortcut Dimension 1 Code")
+                {
+                    ApplicationArea = Dimensions;
+                    Caption = 'Shortcut Dimension 1 Code';
+                    CaptionClass = '1,2,1';
+                    ToolTip = 'Specifies the code for Shortcut Dimension 1, which is one of two global dimension codes that you set up in the General Ledger Setup window.';
+                    Visible = false;
+                    Editable = not IsCommentLineEditable;
+                    Enabled = not IsCommentLineEditable;
+
+                    trigger OnLookup(var Text: Text): Boolean
+                    begin
+                        DimMgt.LookupDimValueCode(1, ServiceCommitment."Shortcut Dimension 1 Code");
+                        Text := ServiceCommitment."Shortcut Dimension 1 Code";
+                        exit(true);
+                    end;
+
+                    trigger OnValidate()
+                    begin
+                        UpdateServiceCommitmentOnPage(ServiceCommitment.FieldNo("Shortcut Dimension 1 Code"));
+                    end;
+                }
+                field("Shortcut Dimension 2 Code"; ServiceCommitment."Shortcut Dimension 2 Code")
+                {
+                    ApplicationArea = Dimensions;
+                    Caption = 'Shortcut Dimension 2 Code';
+                    CaptionClass = '1,2,2';
+                    ToolTip = 'Specifies the code for Shortcut Dimension 2, which is one of two global dimension codes that you set up in the General Ledger Setup window.';
+                    Visible = false;
+                    Editable = not IsCommentLineEditable;
+                    Enabled = not IsCommentLineEditable;
+
+                    trigger OnLookup(var Text: Text): Boolean
+                    begin
+                        DimMgt.LookupDimValueCode(2, ServiceCommitment."Shortcut Dimension 2 Code");
+                        Text := ServiceCommitment."Shortcut Dimension 2 Code";
+                        exit(true);
+                    end;
+
+                    trigger OnValidate()
+                    begin
+                        UpdateServiceCommitmentOnPage(ServiceCommitment.FieldNo("Shortcut Dimension 2 Code"));
                     end;
                 }
             }
@@ -564,9 +643,9 @@ page 8068 "Customer Contract Line Subp."
 
     trigger OnAfterGetRecord()
     begin
-        InitializePageVariables();
-        SetNextBillingDateStyle();
+        Rec.GetServiceObject(ServiceObject);
         Rec.LoadServiceCommitmentForContractLine(ServiceCommitment);
+        SetNextBillingDateStyle();
         LoadQuantityForContractLine();
         VariantCode := ServiceObject."Variant Code";
     end;
@@ -587,6 +666,7 @@ page 8068 "Customer Contract Line Subp."
 
     var
         ContractsGeneralMgt: Codeunit "Sub. Contracts General Mgt.";
+        DimMgt: Codeunit DimensionManagement;
         NextBillingDateStyleExpr: Text;
         ContractLineQty: Decimal;
         VariantCode: Code[10];
@@ -598,15 +678,10 @@ page 8068 "Customer Contract Line Subp."
         ServiceObject: Record "Subscription Header";
         ServiceCommitment: Record "Subscription Line";
 
-    local procedure InitializePageVariables()
-    var
-    begin
-        Rec.GetServiceCommitment(ServiceCommitment);
-        Rec.GetServiceObject(ServiceObject);
-    end;
-
     local procedure UpdateServiceCommitmentOnPage(CalledByFieldNo: Integer)
     begin
+        if Rec.IsCommentLine() then
+            exit;
         ServiceCommitment.UpdateServiceCommitment(CalledByFieldNo);
         CurrPage.Update();
     end;

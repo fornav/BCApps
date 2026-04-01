@@ -29,15 +29,22 @@ codeunit 30116 "Shpfy Customer Export"
         if Customer.FindSet(false) then begin
             CustomerMapping.SetShop(Shop);
             repeat
-                CustomerId := CustomerMapping.FindMapping(Customer, CreateCustomers);
-                if CustomerId = 0 then begin
-                    if CreateCustomers then
-                        CreateShopifyCustomer(Customer);
+                if CreateCustomers then begin
+                    CustomerId := CustomerMapping.FindMapping(Customer, CreateCustomers);
+                    if CustomerId = 0 then
+                        CreateShopifyCustomer(Customer)
+                    else begin
+                        ShopifyCustomer.Get(CustomerId);
+                        if ShopifyCustomer."Customer SystemId" <> Customer.SystemId then
+                            SkippedRecord.LogSkippedRecord(Customer.RecordId, CustomerWithPhoneNoOrEmailExistsLbl, Shop)
+                        else
+                            if Shop."Can Update Shopify Customer" then
+                                UpdateShopifyCustomer(Customer, ShopifyCustomer);
+                    end;
                 end else begin
-                    ShopifyCustomer.Get(CustomerId);
-                    if ShopifyCustomer."Customer SystemId" <> Customer.SystemId then
-                        SkippedRecord.LogSkippedRecord(Customer.RecordId, CustomerWithPhoneNoOrEmailExistsLbl, Shop)
-                    else
+                    ShopifyCustomer.SetRange("Shop Id", Shop."Shop Id");
+                    ShopifyCustomer.SetRange("Customer SystemId", Customer.SystemId);
+                    if ShopifyCustomer.FindFirst() then
                         if Shop."Can Update Shopify Customer" then
                             UpdateShopifyCustomer(Customer, ShopifyCustomer);
                 end;
@@ -49,7 +56,6 @@ codeunit 30116 "Shpfy Customer Export"
     var
         Shop: Record "Shpfy Shop";
         CustomerApi: Codeunit "Shpfy Customer API";
-        MetafieldAPI: Codeunit "Shpfy Metafield API";
         SkippedRecord: Codeunit "Shpfy Skipped Record";
         CreateCustomers: Boolean;
         CountyCodeTooLongLbl: Label 'Can not export customer %1 %2. The length of the string is %3, but it must be less than or equal to %4 characters. Value: %5, field: %6', Comment = '%1 - Customer No., %2 - Customer Name, %3 - Length, %4 - Max Length, %5 - Value, %6 - Field Name';
@@ -228,7 +234,6 @@ codeunit 30116 "Shpfy Customer Export"
     begin
         Shop := ShopifyShop;
         CustomerApi.SetShop(Shop);
-        MetafieldAPI.SetShop(Shop)
     end;
 
     /// <summary> 
@@ -286,7 +291,9 @@ codeunit 30116 "Shpfy Customer Export"
     end;
 
     local procedure UpdateMetafields(CustomerId: BigInteger)
+    var
+        Metafields: Codeunit "Shpfy Metafields";
     begin
-        MetafieldAPI.CreateOrUpdateMetafieldsInShopify(Database::"Shpfy Customer", CustomerId);
+        Metafields.SyncMetafieldsToShopify(Database::"Shpfy Customer", CustomerId, Shop.Code);
     end;
 }

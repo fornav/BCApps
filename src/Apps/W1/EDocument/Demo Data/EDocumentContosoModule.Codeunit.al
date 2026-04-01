@@ -25,6 +25,7 @@ codeunit 5373 "E-Document Contoso Module" implements "Contoso Demo Data Module"
         Dependencies.Add(Enum::"Contoso Demo Data Module"::Foundation);
         Dependencies.Add(Enum::"Contoso Demo Data Module"::Finance);
         Dependencies.Add(Enum::"Contoso Demo Data Module"::"Warehouse Module");
+        Dependencies.Add(Enum::"Contoso Demo Data Module"::Purchase);
     end;
 
     procedure CreateSetupData()
@@ -48,6 +49,6 @@ codeunit 5373 "E-Document Contoso Module" implements "Contoso Demo Data Module"
 
     procedure CreateHistoricalData()
     begin
-
+        Codeunit.Run(Codeunit::"Create E-Doc. Sample Invoices");
     end;
 }

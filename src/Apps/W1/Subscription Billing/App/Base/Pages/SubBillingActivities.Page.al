@@ -1,9 +1,11 @@
 namespace Microsoft.SubscriptionBilling;
 
+#pragma warning disable AS0072
 #if not CLEAN26
 using Microsoft.Foundation.Task;
 using Microsoft.Projects.Project.Job;
 #endif
+#pragma warning restore AS0072
 using Microsoft.Purchases.Document;
 using Microsoft.RoleCenters;
 using Microsoft.Sales.Document;
@@ -23,6 +25,7 @@ page 8085 "Sub. Billing Activities"
     {
         area(content)
         {
+#pragma warning disable AS0072
 #if not CLEAN26
             cuegroup("My User Tasks")
             {
@@ -70,6 +73,7 @@ page 8085 "Sub. Billing Activities"
                 }
             }
 #endif
+#pragma warning restore AS0072
 
             cuegroup("Open Posted Documents Customer")
             {
@@ -169,6 +173,14 @@ page 8085 "Sub. Billing Activities"
                     ToolTip = 'Specifies the Balance between posted Contract Invoices and Contract Credit Memos for Vendor Subscription Contracts in previous Month.';
                 }
             }
+            cuegroup(Errors)
+            {
+                Caption = 'Errors';
+                field("Errors Automated Billing"; Rec."Errors Automated Billing")
+                {
+                    Image = Info;
+                }
+            }
         }
     }
 
@@ -200,7 +212,6 @@ page 8085 "Sub. Billing Activities"
 
                 trigger OnAction()
                 begin
-                    SetMyJobsFilter();
                     CurrPage.Update();
                 end;
             }
@@ -236,7 +247,6 @@ page 8085 "Sub. Billing Activities"
             Rec.Insert(false);
         end;
 
-        SetMyJobsFilter();
         RoleCenterNotificationMgt.ShowNotifications();
     end;
 
@@ -257,16 +267,13 @@ page 8085 "Sub. Billing Activities"
         CurrPage.Update();
     end;
 
-    local procedure SetMyJobsFilter()
-    begin
-        Rec.SetFilter("Job No. Filter", SubBillingActivitiesCue.GetMyJobsFilter());
-    end;
-
     var
         SubBillingActivitiesCue: Codeunit "Sub. Billing Activities Cue";
         CuesAndKpisCodeunit: Codeunit "Cues And KPIs";
+#pragma warning disable AS0072
 #if not CLEAN26
         UserTaskManagement: Codeunit "User Task Management";
 #endif
+#pragma warning restore AS0072
         CalcTaskId: Integer;
 }

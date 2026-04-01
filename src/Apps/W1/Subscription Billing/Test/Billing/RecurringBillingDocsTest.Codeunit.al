@@ -66,13 +66,16 @@ codeunit 139687 "Recurring Billing Docs Test"
         LibraryUtility: Codeunit "Library - Utility";
         LibraryVariableStorage: Codeunit "Library - Variable Storage";
         IsInitialized: Boolean;
+        NextToDateBeforeFromDateErr: Label 'CalculateNextToDate returned %1 which is before FromDate %2. This would cause billing to get stuck.', Locked = true;
         NoContractLinesFoundErr: Label 'No contract lines were found that can be billed with the specified parameters.', Locked = true;
+        ItemDeletedErr: Label 'Item created from catalog item should not be deleted when the billing invoice is deleted.', Locked = true;
+        StrMenuHandlerStep: Integer;
 
     #region Tests
 
     [Test]
     [HandlerFunctions('MessageHandler,GetVendorContractLinesPageHandler,ExchangeRateSelectionModalPageHandler')]
-    procedure AssignVendorContractLinesToExistingPurchaseInvoiceLine()
+    procedure AssignItemVendorContractLineToPurchaseInvoiceLine()
     var
         Item: Record Item;
         Vendor: Record Vendor;
@@ -117,40 +120,206 @@ codeunit 139687 "Recurring Billing Docs Test"
     end;
 
     [Test]
-    [HandlerFunctions('CreateCustomerBillingDocsContractPageHandler,CreateVendorBillingDocsContractPageHandler,ExchangeRateSelectionModalPageHandler,MessageHandler')]
-    procedure CheckBatchDeleteAllContractDocuments()
+    [HandlerFunctions('GetVendorContractLinesPageHandler')]
+    procedure AssignGLAccountVendorContractLineToPurchaseInvoiceLine()
+    var
+        Vendor: Record Vendor;
     begin
+        // [SCENARIO] Test if Vendor Subscription Contract line with G/L Account can be assigned to G/L Account purchase invoice line
         Initialize();
-        LibrarySetupStorage.Save(Database::"Subscription Contract Setup");
 
-        // [SCENARIO] multiple Sales- and Purchase-Contract Documents can be batch-deleted by using the function from the recurring billing page
-        InitAndCreateBillingDocument(Enum::"Service Partner"::Customer);
-        InitAndCreateBillingDocument(Enum::"Service Partner"::Customer);
-        InitAndCreateBillingDocument(Enum::"Service Partner"::Vendor);
-        InitAndCreateBillingDocument(Enum::"Service Partner"::Vendor);
+        // [GIVEN] A Vendor Subscription Contract with a G/L Account line
+        ContractTestLibrary.DeleteAllContractRecords();
+        ContractTestLibrary.CreateVendor(Vendor);
+        ContractTestLibrary.CreateVendorContract(VendorContract, Vendor."No.");
+        ContractTestLibrary.InsertVendorContractGLAccountLine(VendorContract, VendorContractLine);
+        GetVendorContractServiceCommitment(VendorContract."No.");
+        ServiceCommitment."Billing Rhythm" := ServiceCommitment."Billing Base Period";
+        ServiceCommitment.Modify(false);
 
-        BillingProposal.DeleteBillingDocuments(1, false); // Selection: 1 = "All Documents"
+        // [GIVEN] A Purchase Invoice with a G/L Account line for the same G/L Account
+        LibraryPurchase.CreatePurchaseInvoiceForVendorNo(PurchaseHeader, Vendor."No.");
+        LibraryPurchase.CreatePurchaseLine(PurchaseLine, PurchaseHeader, "Purchase Line Type"::"G/L Account", VendorContractLine."No.", 1);
+        PurchaseLine.Validate("Direct Unit Cost", LibraryRandom.RandDec(100, 2));
+        PurchaseLine.Modify(false);
 
-        Assert.AreEqual(0, GetNumberOfContractDocumentsSales(Enum::"Sales Document Type"::Invoice), 'Failed to delete all Sales Contract Invoices');
-        Assert.AreEqual(0, GetNumberOfContractDocumentsSales(Enum::"Sales Document Type"::"Credit Memo"), 'Failed to delete all Sales Contract Credit Memos');
-        Assert.AreEqual(0, GetNumberOfContractDocumentsPurchase(Enum::"Purchase Document Type"::Invoice), 'Failed to delete all Purchase Contract Invoices');
-        Assert.AreEqual(0, GetNumberOfContractDocumentsPurchase(Enum::"Purchase Document Type"::"Credit Memo"), 'Failed to delete all Purchase Contract Credit Memos');
+        // [WHEN] Assign Contract Line to the G/L Account purchase invoice line
+        PurchaseLine.AssignVendorContractLine();
+
+        // [THEN] Purchase header is marked as Recurring billing
+        PurchaseHeader.Get(PurchaseHeader."Document Type", PurchaseHeader."No.");
+        PurchaseHeader.TestField("Recurring Billing", true);
+
+        // [THEN] Billing lines exist and amount matches purchase line amount
+        BillingLine.Reset();
+        BillingLine.FilterBillingLineOnDocumentLine(BillingLine.GetBillingDocumentTypeFromPurchaseDocumentType(PurchaseLine."Document Type"), PurchaseLine."Document No.", PurchaseLine."Line No.");
+        Assert.RecordIsNotEmpty(BillingLine);
+        BillingLine.CalcSums(Amount);
+        Assert.AreEqual(PurchaseLine."Line Amount", BillingLine.Amount, 'Service amount was not taken from G/L Account purchase line');
+
+        // [THEN] If Purchase Line is deleted, billing lines are deleted as well
+        PurchaseLine.Get(PurchaseLine."Document Type", PurchaseLine."Document No.", PurchaseLine."Line No.");
+        PurchaseLine.Delete(true);
+        BillingLine.Reset();
+        BillingLine.FilterBillingLineOnDocumentLine(BillingLine.GetBillingDocumentTypeFromPurchaseDocumentType(PurchaseLine."Document Type"), PurchaseLine."Document No.", PurchaseLine."Line No.");
+        Assert.RecordIsEmpty(BillingLine);
     end;
 
     [Test]
-    procedure CheckBatchDeleteSelectedContractDocuments()
+    [HandlerFunctions('CreateCustomerBillingDocsContractPageHandler,CreateVendorBillingDocsContractPageHandler,ExchangeRateSelectionModalPageHandler,MessageHandler,StrMenuHandlerDeleteDocuments')]
+    procedure CheckBatchDeleteAllContractDocuments()
     begin
+        // [SCENARIO] multiple Sales  and Purchase Contract Documents can be batch-deleted by using the function from the recurring billing page
+        Initialize();
+        LibrarySetupStorage.Save(Database::"Subscription Contract Setup");
+
+        // [GIVEN] Two Sales Contract Documents exist
+        DeleteSalesContractDocuments();
+        InitAndCreateBillingDocument(Enum::"Service Partner"::Customer);
+        InitAndCreateBillingDocument(Enum::"Service Partner"::Customer);
+
+        // [WHEN] Delete all Sales Contract Documents from Recurring Billing Page
+        StrMenuHandlerStep := 1;
+        BillingProposal.DeleteBillingDocuments(BillingTemplate.Code);
+
+        // [THEN] Verify that all Sales Contract Documents have been deleted
+        Assert.AreEqual(0, GetNumberOfContractDocumentsSales(), 'Failed to delete all Sales Documents');
+
+        // [GIVEN] Two Purchase Contract Documents exist
+        DeletePurchaseContractDocuments();
+        InitAndCreateBillingDocument(Enum::"Service Partner"::Vendor);
+        InitAndCreateBillingDocument(Enum::"Service Partner"::Vendor);
+
+        // [WHEN] Delete all Purchase Contract Documents from Recurring Billing Page
+        StrMenuHandlerStep := 1;
+        BillingProposal.DeleteBillingDocuments(BillingTemplate.Code);
+
+        // [THEN] Verify that all Purchase Contract Documents have been deleted
+        Assert.AreEqual(0, GetNumberOfContractDocumentsPurchase(), 'Failed to delete all Purchase Documents');
+    end;
+
+    [Test]
+    [HandlerFunctions('CreateCustomerBillingDocsContractPageHandler,ExchangeRateSelectionModalPageHandler,MessageHandler')]
+    procedure CheckBillingPeriodDescriptionUsesDocumentFormatRegionForSalesDocuments()
+    var
+        Customer: Record Customer;
+        ServiceContractSetup: Record "Subscription Contract Setup";
+        CreateBillingDocs: Codeunit "Create Billing Documents";
+        LanguageMgt: Codeunit Language;
+        ExpectedDescription: Text;
+        GermanFormatRegionTok: Label 'de-DE', Locked = true;
+        UsFormatRegionTok: Label 'en-US', Locked = true;
+    begin
+        // [SCENARIO] When the operator uses German format region and creates a Sales Invoice for a US customer,
+        // the billing period dates in the sales line description should use the document's format region (en-US) and NOT the operator's region.
+        Initialize();
+        LibrarySetupStorage.Save(Database::"Subscription Contract Setup");
+
+        // [GIVEN] Service contract setup with "Billing Period" as main description
+        ServiceContractSetup.Get();
+        ServiceContractSetup."Contract Invoice Description" := Enum::"Contract Invoice Text Type"::"Billing Period";
+        ServiceContractSetup.Modify(false);
+
+        // [GIVEN] Customer contract with subscription lines
+        ContractTestLibrary.CreateCustomerContractAndCreateContractLinesForItems(CustomerContract, ServiceObject, '');
+
+        // [GIVEN] Customer has US format region (en-US)
+        Customer.Get(CustomerContract."Bill-to Customer No.");
+        Customer."Format Region" := UsFormatRegionTok;
+        Customer.Modify(false);
+
+        // [GIVEN] A billing proposal
+        ContractTestLibrary.CreateBillingProposal(BillingTemplate, Enum::"Service Partner"::Customer);
+
+        // [GIVEN] Operator uses German format region (simulates a German user session)
+        LanguageMgt.SetOverrideFormatRegion(GermanFormatRegionTok, false);
+
+        // [WHEN] Create billing documents
+        CreateBillingDocuments(false);
+
+        // Ensure format region override is cleared after billing
+        LanguageMgt.SetOverrideFormatRegion('', false);
+
+        // [THEN] Sales line billing period description uses the document's format region (en-US)
+        BillingLine.Reset();
+        BillingLine.SetRange("Billing Template Code", BillingTemplate.Code);
+        BillingLine.SetRange(Partner, BillingTemplate.Partner);
+        BillingLine.FindFirst();
+        BillingLine.TestField("Document Type", BillingLine."Document Type"::Invoice);
+
+        SalesLine.Reset();
+        FilterSalesLineOnDocumentLine(BillingLine.GetSalesDocumentTypeFromBillingDocumentType(), BillingLine."Document No.", BillingLine."Document Line No.");
+        SalesLine.FindFirst();
+
+        // Build expected description using the document's format region (en-US)
+        LanguageMgt.SetOverrideFormatRegion(UsFormatRegionTok, false);
+        ExpectedDescription := StrSubstNo(CreateBillingDocs.GetBillingPeriodDescriptionTxt(), SalesLine."Recurring Billing from", SalesLine."Recurring Billing to");
+        LanguageMgt.SetOverrideFormatRegion('', false);
+
+        Assert.AreEqual(ExpectedDescription, SalesLine.Description,
+            'Billing period description should use the document format region (en-US), not the operator format region (de-DE)');
+    end;
+
+    [Test]
+    [HandlerFunctions('CreateVendorBillingDocsContractPageHandler,ExchangeRateSelectionModalPageHandler,MessageHandler')]
+    procedure CheckBillingPeriodDescriptionUsesDocumentFormatRegionForPurchaseDocuments()
+    var
+        Vendor: Record Vendor;
+        CreateBillingDocs: Codeunit "Create Billing Documents";
+        LanguageMgt: Codeunit Language;
+        ExpectedDescription: Text;
+        GermanFormatRegionTok: Label 'de-DE', Locked = true;
+        UsFormatRegionTok: Label 'en-US', Locked = true;
+    begin
+        // [SCENARIO] When the operator uses German format region and creates a Purchase Invoice for a US vendor,
+        // the billing period dates in the attached description line should use the document's format region (en-US) and NOT the operator's region.
+        // Note: unlike sales, the billing period text is always placed in a separate attached description line on purchase documents;
+        // "Contract Invoice Description" setup has no effect on purchase documents.
         Initialize();
 
-        // [SCENARIO] multiple Sales- and Purchase-Contract Invoices can be batch-deleted depending on the selected document type
-        // Selection: 2 = "All Sales Invoices"
-        CreateAndDeleteDummyContractDocuments(2, 0, 2, 2, 2);
-        // Selection: 3 = "All Sales Credit Memos"
-        CreateAndDeleteDummyContractDocuments(3, 2, 0, 2, 2);
-        // Selection: 4 = "All Purchase Invoices"
-        CreateAndDeleteDummyContractDocuments(4, 2, 2, 0, 2);
-        // Selection: 5 = "All Purchase Credit Memos"
-        CreateAndDeleteDummyContractDocuments(5, 2, 2, 2, 0);
+        // [GIVEN] Vendor contract with subscription lines
+        ContractTestLibrary.CreateVendorContractAndCreateContractLinesForItems(VendorContract, ServiceObject, '');
+
+        // [GIVEN] Vendor has US format region (en-US)
+        Vendor.Get(VendorContract."Pay-to Vendor No.");
+        Vendor."Format Region" := UsFormatRegionTok;
+        Vendor.Modify(false);
+
+        // [GIVEN] A billing proposal
+        ContractTestLibrary.CreateBillingProposal(BillingTemplate, Enum::"Service Partner"::Vendor);
+
+        // [GIVEN] Operator uses German format region (simulates a German user session)
+        LanguageMgt.SetOverrideFormatRegion(GermanFormatRegionTok, false);
+
+        // [WHEN] Create billing documents
+        CreateBillingDocuments(false);
+
+        // Ensure format region override is cleared after billing
+        LanguageMgt.SetOverrideFormatRegion('', false);
+
+        // [THEN] Attached description line billing period uses the document's format region (en-US)
+        BillingLine.Reset();
+        BillingLine.SetRange("Billing Template Code", BillingTemplate.Code);
+        BillingLine.SetRange(Partner, BillingTemplate.Partner);
+        BillingLine.FindFirst();
+        BillingLine.TestField("Document Type", BillingLine."Document Type"::Invoice);
+
+        PurchaseLine.Reset();
+        FilterPurchaseLineOnDocumentLine(BillingLine.GetPurchaseDocumentTypeFromBillingDocumentType(), BillingLine."Document No.", BillingLine."Document Line No.");
+        PurchaseLine.FindFirst();
+
+        // Build expected description using the document's format region (en-US)
+        // Dates are read from the main purchase line; the actual billing period text lives in the attached description line
+        LanguageMgt.SetOverrideFormatRegion(UsFormatRegionTok, false);
+        ExpectedDescription := StrSubstNo(CreateBillingDocs.GetBillingPeriodDescriptionTxt(), PurchaseLine."Recurring Billing from", PurchaseLine."Recurring Billing to");
+        LanguageMgt.SetOverrideFormatRegion('', false);
+
+        PurchaseLine.SetRange("Line No.");
+        PurchaseLine.SetRange("Attached to Line No.", BillingLine."Document Line No.");
+        PurchaseLine.FindFirst();
+
+        Assert.AreEqual(ExpectedDescription, PurchaseLine.Description,
+            'Billing period description should use the document format region (en-US), not the operator format region (de-DE)');
     end;
 
     [Test]
@@ -515,6 +684,40 @@ codeunit 139687 "Recurring Billing Docs Test"
     end;
 
     [Test]
+    [HandlerFunctions('CreateCustomerBillingDocsContractPageHandler,MessageHandler')]
+    procedure PostRecurringBillingInvoiceWithZeroQuantity()
+    var
+        Customer: Record Customer;
+        PostedDocumentNo: Code[20];
+    begin
+        // [SCENARIO] Sales Invoice with "Recurring Billing" = YES can be posted even when it has zero quantity lines
+        Initialize();
+
+        // [GIVEN] Create Customer Subscription Contract with subscription having quantity 0
+        ContractTestLibrary.CreateCustomerInLCY(Customer);
+        ContractTestLibrary.CreateCustomerContractAndCreateContractLinesForItems(CustomerContract, ServiceObject, Customer."No.");
+        ContractTestLibrary.DisableDeferralsForCustomerContract(CustomerContract, false);
+        ServiceObject.SetHideValidationDialog(true);
+        ServiceObject.Validate(Quantity, 0);
+        ServiceObject.Modify(true);
+
+        // [GIVEN] Create billing proposal and billing documents - sales lines will have quantity 0
+        ContractTestLibrary.CreateBillingProposal(BillingTemplate, Enum::"Service Partner"::Customer);
+        CreateBillingDocuments(false);
+        BillingLine.SetFilter("Document No.", '<>%1', '');
+        BillingLine.FindFirst();
+        SalesHeader.Get(Enum::"Sales Document Type"::Invoice, BillingLine."Document No.");
+        SalesHeader.TestField("Recurring Billing", true);
+
+        // [WHEN] Post the Sales Invoice with zero quantity lines
+        PostedDocumentNo := LibrarySales.PostSalesDocument(SalesHeader, true, true);
+
+        // [THEN] The Sales Invoice is posted successfully
+        SalesInvoiceHeader.Get(PostedDocumentNo);
+        SalesInvoiceHeader.TestField("Recurring Billing", true);
+    end;
+
+    [Test]
     [HandlerFunctions('CheckDialogConfirmHandler,ExchangeRateSelectionModalPageHandler,CreateVendorBillingDocsTestOpenPageHandler,MessageHandler')]
     procedure CheckVendorBillingProposalCanBeCreatedForPurchaseCrMemoExists()
     var
@@ -534,6 +737,42 @@ codeunit 139687 "Recurring Billing Docs Test"
         PurchaseInvoiceHeader.Get(BillingLineArchive."Document No.");
         CorrectPostedPurchaseInvoice.CreateCreditMemoCopyDocument(PurchaseInvoiceHeader, PurchaseHeader);
         BillingProposal.CreateBillingProposalFromContract(VendorContract."No.", VendorContract.GetFilter("Billing Rhythm Filter"), "Service Partner"::Vendor);
+    end;
+
+    [Test]
+    [HandlerFunctions('CreateVendorBillingDocsContractPageHandler,MessageHandler')]
+    procedure PostRecurringBillingPurchaseInvoiceWithZeroQuantity()
+    var
+        Vendor: Record Vendor;
+        PostedDocumentNo: Code[20];
+    begin
+        // [SCENARIO] Purchase Invoice with "Recurring Billing" = YES can be posted even when it has zero quantity lines
+        Initialize();
+
+        // [GIVEN] Create Vendor Subscription Contract with subscription having quantity 0
+        ContractTestLibrary.CreateVendorInLCY(Vendor);
+        ContractTestLibrary.CreateVendorContractAndCreateContractLinesForItems(VendorContract, ServiceObject, Vendor."No.");
+        ContractTestLibrary.DisableDeferralsForVendorContract(VendorContract, false);
+        ServiceObject.SetHideValidationDialog(true);
+        ServiceObject.Validate(Quantity, 0);
+        ServiceObject.Modify(true);
+
+        // [GIVEN] Create billing proposal and billing documents - purchase lines will have quantity 0
+        ContractTestLibrary.CreateBillingProposal(BillingTemplate, Enum::"Service Partner"::Vendor);
+        CreateBillingDocuments(false);
+        BillingLine.SetFilter("Document No.", '<>%1', '');
+        BillingLine.FindFirst();
+        PurchaseHeader.Get(Enum::"Purchase Document Type"::Invoice, BillingLine."Document No.");
+        PurchaseHeader.TestField("Recurring Billing", true);
+        PurchaseHeader.Validate("Vendor Invoice No.", LibraryUtility.GenerateGUID());
+        PurchaseHeader.Modify(false);
+
+        // [WHEN] Post the Purchase Invoice with zero quantity lines
+        PostedDocumentNo := LibraryPurchase.PostPurchaseDocument(PurchaseHeader, true, true);
+
+        // [THEN] The Purchase Invoice is posted successfully
+        PurchaseInvoiceHeader.Get(PostedDocumentNo);
+        PurchaseInvoiceHeader.TestField("Recurring Billing", true);
     end;
 
     [Test]
@@ -1297,7 +1536,7 @@ codeunit 139687 "Recurring Billing Docs Test"
     end;
 
     [Test]
-    [HandlerFunctions('MessageHandler,GetVendorContractLinesProducesCorrectAmountsDuringSelectionPageHandler,ExchangeRateSelectionModalPageHandler')]
+    [HandlerFunctions('GetVendorContractLinesProducesCorrectAmountsDuringSelectionPageHandler')]
     procedure GetVendorContractLinesProducesCorrectAmountsDuringSelection()
     var
         Item: Record Item;
@@ -1309,7 +1548,7 @@ codeunit 139687 "Recurring Billing Docs Test"
         // [GIVEN] Setup Subscription with Subscription Line and assign it to Vendor Subscription Contract
         // [GIVEN] Create Purchase Invoice with Purchase Invoice Line
         ContractTestLibrary.DeleteAllContractRecords();
-        ContractTestLibrary.CreateVendor(Vendor);
+        ContractTestLibrary.CreateVendorInLCY(Vendor);
         ContractTestLibrary.CreateVendorContractAndCreateContractLinesForItems(VendorContract, ServiceObject, Vendor."No.");
         GetVendorContractServiceCommitment(VendorContract."No.");
         ServiceCommitment."Billing Rhythm" := ServiceCommitment."Billing Base Period";
@@ -1359,6 +1598,41 @@ codeunit 139687 "Recurring Billing Docs Test"
         BillingLine.Reset();
         BillingLine.SetRange("Subscription Contract No.", CustomerContract."No.");
         asserterror BillingLine.FindFirst();
+    end;
+
+    [Test]
+    [HandlerFunctions('CreateCustomerBillingDocsContractPageHandler,ExchangeRateSelectionModalPageHandler,MessageHandler')]
+    procedure TestBillingDocumentWithZeroQuantity()
+    begin
+        // [SCENARIO] Billing documents are created with quantity 0 and amount 0 when subscription quantity is 0
+        Initialize();
+
+        // [GIVEN] Create customer contract with subscription and set quantity to 0
+        ContractTestLibrary.CreateCustomerContractAndCreateContractLinesForItems(CustomerContract, ServiceObject, '');
+        ContractTestLibrary.DisableDeferralsForCustomerContract(CustomerContract, false);
+        ServiceObject.SetHideValidationDialog(true);
+        ServiceObject.Validate(Quantity, 0);
+        ServiceObject.Modify(true);
+
+        // [WHEN] Create billing proposal and billing documents
+        ContractTestLibrary.CreateBillingProposal(BillingTemplate, Enum::"Service Partner"::Customer);
+        BillingLine.SetRange("Billing Template Code", BillingTemplate.Code);
+        BillingLine.SetRange("Subscription Header No.", ServiceObject."No.");
+        BillingLine.SetRange("Document No.", '');
+        if not BillingLine.IsEmpty() then begin
+            CreateBillingDocuments(false);
+
+            // [THEN] Sales line is created with quantity 0
+            BillingLine.SetFilter("Document No.", '<>%1', '');
+            if BillingLine.FindFirst() then begin
+                SalesHeader.Get(SalesHeader."Document Type"::Invoice, BillingLine."Document No.");
+                SalesLine.SetRange("Document Type", SalesHeader."Document Type");
+                SalesLine.SetRange("Document No.", SalesHeader."No.");
+                SalesLine.FindFirst();
+                Assert.AreEqual(0, SalesLine.Quantity, 'Sales Line quantity should be 0.');
+                Assert.AreEqual(0, SalesLine."Line Amount", 'Sales Line amount should be 0.');
+            end;
+        end;
     end;
 
     [Test]
@@ -2095,8 +2369,114 @@ codeunit 139687 "Recurring Billing Docs Test"
         MockServiceObject."Unit of Measure" := UnitOfMeasure.Code;
 
         // [THEN] Throw error if Item Unit of Measure for Invoicing Item No. does not exist
-        asserterror CreateBillingDocumentsCodeunit.ErrorIfItemUnitOfMeasureCodeDoesNotExist(Item."No.", MockServiceObject);
+        asserterror CreateBillingDocumentsCodeunit.ErrorIfItemUnitOfMeasureCodeDoesNotExist(BillingLine, Item."No.", MockServiceObject);
         Assert.ExpectedError(StrSubstNo(ItemUOMDoesNotExistErr, MockServiceObject."No.", MockServiceObject."Unit of Measure", Item."No."));
+    end;
+
+    [Test]
+    [HandlerFunctions('ExchangeRateSelectionModalPageHandler,MessageHandler,CreateBillingDocumentPageHandler')]
+    procedure CatalogSubscriptionItemNotDeletedOnInvoiceDeletion()
+    var
+        Salesline2: Record "Sales Line";
+        Item: Record Item;
+        NextBillingToDate: Date;
+        ItemNo: Code[20];
+    begin
+        // [SCENARIO 625680] When an item is created from a catalog item and used in a subscription contract,
+        // deleting the invoice draft should NOT automatically delete the item.
+        Initialize();
+
+        // [GIVEN] Create a subscription contract with an item created from catalog, and create a billing proposal to generate an invoice. Then delete the invoice.
+        ContractTestLibrary.DeleteAllContractRecords();
+        ContractTestLibrary.CreateCustomerContractAndCreateContractLinesForItems(CustomerContract, ServiceObject, '', false);
+        GetCustomerContractServiceCommitment(CustomerContract."No.");
+        NextBillingToDate := ServiceCommitment."Next Billing Date";
+        LibraryVariableStorage.Enqueue(NextBillingToDate);
+
+        // [GIVEN] Create a billing proposal to generate an invoice for the subscription contract. This will create an item from catalog and link it to the invoice line.
+        BillingProposal.CreateBillingProposalFromContract(CustomerContract."No.", CustomerContract.GetFilter("Billing Rhythm Filter"), "Service Partner"::Customer);
+        BillingLine.Reset();
+        BillingLine.SetRange("Billing Template Code", '');
+        BillingLine.FindLast();
+        SalesHeader.Get(Enum::"Sales Document Type"::Invoice, BillingLine."Document No.");
+        Salesline2.Get(Salesline2."Document Type"::Invoice, SalesHeader."No.", BillingLine."Document Line No.");
+        Item.Get(Salesline2."No.");
+        ItemNo := Item."No.";
+        SalesHeader.Delete(true);
+        Item.Validate("Subscription Option", Item."Subscription Option"::"Service Commitment Item");
+        Item.Validate("Created From Nonstock Item", true);
+        Item.Modify(true);
+
+        // [GIVEN] Create a new billing proposal with the same subscription contract which will recreate the invoice and link it to the same item created from catalog.
+        LibraryVariableStorage.Enqueue(NextBillingToDate);
+        BillingProposal.CreateBillingProposalFromContract(CustomerContract."No.", CustomerContract.GetFilter("Billing Rhythm Filter"), "Service Partner"::Customer);
+
+        // [WHEN] Delete the invoice created from the billing proposal.
+        BillingLine.Reset();
+        BillingLine.SetRange("Billing Template Code", '');
+        BillingLine.FindLast();
+        SalesHeader.Get(Enum::"Sales Document Type"::Invoice, BillingLine."Document No.");
+        SalesHeader.Delete(true);
+
+        // [THEN] The item created from catalog should NOT be deleted.
+        Item.Reset();
+        Assert.IsTrue(Item.Get(ItemNo), ItemDeletedErr);
+    end;
+
+    [Test]
+    procedure CalculateNextToDateAlignEndOfMonthDoesNotReturnDateBeforeFromDate()
+    var
+        SubscriptionLine: Record "Subscription Line";
+        PeriodFormula: DateFormula;
+        FromDate: Date;
+        NextToDate: Date;
+    begin
+        // [FEATURE] [AI test]
+        // [SCENARIO 623011] CalculateNextToDate with "Align to End of Month" does not return date before FromDate
+        Initialize();
+
+        // [GIVEN] Subscription Line "SL" with Period Calculation = "Align to End of Month" and start date Jan 29
+        MockSubscriptionLine(SubscriptionLine);
+        SubscriptionLine.Validate("Period Calculation", SubscriptionLine."Period Calculation"::"Align to End of Month");
+        SubscriptionLine.Validate("Subscription Line Start Date", DMY2Date(29, 1, 2025));
+        SubscriptionLine.Modify();
+
+        // [WHEN] CalculateNextToDate is called with period formula <1D> from Feb 27
+        Evaluate(PeriodFormula, '<1D>');
+        FromDate := DMY2Date(27, 2, 2025);
+        NextToDate := SubscriptionLine.CalculateNextToDate(PeriodFormula, FromDate);
+
+        // [THEN] NextToDate is not before FromDate
+        Assert.IsTrue(NextToDate >= FromDate,
+            StrSubstNo(NextToDateBeforeFromDateErr, NextToDate, FromDate));
+    end;
+
+    [Test]
+    procedure CalculateNextToDateMonthFormulaLeapYearDoesNotReturnDateBeforeFromDate()
+    var
+        SubscriptionLine: Record "Subscription Line";
+        PeriodFormula: DateFormula;
+        FromDate: Date;
+        NextToDate: Date;
+    begin
+        // [FEATURE] [AI test 0.3]
+        // [SCENARIO 623011] CalculateNextToDate with monthly formula and leap year Feb 29 to Mar transition does not return date before FromDate
+        Initialize();
+
+        // [GIVEN] Subscription Line "SL" with Period Calculation = "Align to End of Month" and start date Jan 30 (leap year 2024)
+        MockSubscriptionLine(SubscriptionLine);
+        SubscriptionLine.Validate("Period Calculation", SubscriptionLine."Period Calculation"::"Align to End of Month");
+        SubscriptionLine.Validate("Subscription Line Start Date", DMY2Date(30, 1, 2024));
+        SubscriptionLine.Modify();
+
+        // [WHEN] CalculateNextToDate is called with period formula <1M> from Feb 29 (leap year)
+        Evaluate(PeriodFormula, '<1M>');
+        FromDate := DMY2Date(29, 2, 2024);
+        NextToDate := SubscriptionLine.CalculateNextToDate(PeriodFormula, FromDate);
+
+        // [THEN] NextToDate is not before FromDate
+        Assert.IsTrue(NextToDate >= FromDate,
+            StrSubstNo(NextToDateBeforeFromDateErr, NextToDate, FromDate));
     end;
 
     #endregion Tests
@@ -2186,7 +2566,10 @@ codeunit 139687 "Recurring Billing Docs Test"
             until BillingLine.Next() = 0;
     end;
 
-    local procedure CountBillingArchiveLinesOnDocument(DocumentType: Enum "Rec. Billing Document Type"; DocumentNo: Code[20]; ServicePartner: Enum "Service Partner"; ContractNo: Code[20]; ContractLineNo: Integer): Integer
+    local procedure CountBillingArchiveLinesOnDocument(DocumentType: Enum "Rec. Billing Document Type"; DocumentNo: Code[20];
+                                                                         ServicePartner: Enum "Service Partner";
+                                                                         ContractNo: Code[20];
+                                                                         ContractLineNo: Integer): Integer
     var
         BillingArchiveLine: Record "Billing Line Archive";
     begin
@@ -2203,26 +2586,6 @@ codeunit 139687 "Recurring Billing Docs Test"
         exit(BillingArchiveLine.Count());
     end;
 
-    local procedure CreateAndDeleteDummyContractDocuments(Selection: Integer; NoOfSalesInvoices: Integer; NoOfSalesCrMemos: Integer; NoOfPurchaseInvoices: Integer; NoOfPurchaseCrMemos: Integer)
-    begin
-        SalesHeader.Reset();
-        SalesHeader.SetFilter("Document Type", '%1|%2', SalesHeader."Document Type"::Invoice, SalesHeader."Document Type"::"Credit Memo");
-        if not SalesHeader.IsEmpty() then
-            SalesHeader.ModifyAll("Recurring Billing", false, false);
-        PurchaseHeader.Reset();
-        PurchaseHeader.SetFilter("Document Type", '%1|%2', PurchaseHeader."Document Type"::Invoice, PurchaseHeader."Document Type"::"Credit Memo");
-        if not PurchaseHeader.IsEmpty() then
-            PurchaseHeader.ModifyAll("Recurring Billing", false, false);
-
-        CreateDummyContractDocumentsSales();
-        CreateDummyContractDocumentsPurchase();
-        BillingProposal.DeleteBillingDocuments(Selection, false);
-
-        Assert.AreEqual(NoOfSalesInvoices, GetNumberOfContractDocumentsSales(Enum::"Sales Document Type"::Invoice), 'Unexpected No. of Sales Invoices after batch-deletion');
-        Assert.AreEqual(NoOfSalesCrMemos, GetNumberOfContractDocumentsSales(Enum::"Sales Document Type"::"Credit Memo"), 'Unexpected No. of Sales Credit Memos after batch-deletion');
-        Assert.AreEqual(NoOfPurchaseInvoices, GetNumberOfContractDocumentsPurchase(Enum::"Purchase Document Type"::Invoice), 'Unexpected No. of Purchase Invoices after batch-deletion');
-        Assert.AreEqual(NoOfPurchaseCrMemos, GetNumberOfContractDocumentsPurchase(Enum::"Purchase Document Type"::"Credit Memo"), 'Unexpected No. of Purchase Credit Memos after batch-deletion');
-    end;
 
     local procedure CreateAndPostSimpleSalesDocument(ItemNo: Code[20])
     begin
@@ -2275,44 +2638,30 @@ codeunit 139687 "Recurring Billing Docs Test"
         until CustomerContractLine.Next() = 0;
     end;
 
-    local procedure CreateDummyContractDocumentsPurchase()
-    var
-        PurchaseDocumentType: Enum "Purchase Document Type";
-        i: Integer;
+    local procedure DeletePurchaseContractDocuments(): Integer
     begin
-        for PurchaseDocumentType := PurchaseDocumentType::Invoice to PurchaseDocumentType::"Credit Memo" do
-            for i := 1 to 2 do begin
-                Clear(PurchaseHeader);
-                PurchaseHeader."No." := '';
-                PurchaseHeader."Document Type" := PurchaseDocumentType;
-                PurchaseHeader."Recurring Billing" := true;
-                PurchaseHeader.Insert(true);
-            end;
+        PurchaseHeader.Reset();
+        PurchaseHeader.SetRange("Recurring Billing", true);
+        PurchaseHeader.DeleteAll();
     end;
 
-    local procedure CreateDummyContractDocumentsSales()
-    var
-        SalesDocumentType: Enum "Sales Document Type";
-        i: Integer;
+    local procedure DeleteSalesContractDocuments(): Integer
     begin
-        for SalesDocumentType := SalesDocumentType::Invoice to SalesDocumentType::"Credit Memo" do
-            for i := 1 to 2 do begin
-                Clear(SalesHeader);
-                SalesHeader."No." := '';
-                SalesHeader."Document Type" := SalesDocumentType;
-                SalesHeader."Recurring Billing" := true;
-                SalesHeader.Insert(true);
-            end;
+        SalesHeader.Reset();
+        SalesHeader.SetRange("Recurring Billing", true);
+        SalesHeader.DeleteAll();
     end;
 
-    local procedure FilterPurchaseLineOnDocumentLine(PurchaseDocumentType: Enum "Purchase Document Type"; DocumentNo: Code[20]; LineNo: Integer)
+    local procedure FilterPurchaseLineOnDocumentLine(PurchaseDocumentType: Enum "Purchase Document Type"; DocumentNo: Code[20];
+                                                                               LineNo: Integer)
     begin
         PurchaseLine.SetRange("Document Type", PurchaseDocumentType);
         PurchaseLine.SetRange("Document No.", DocumentNo);
         PurchaseLine.SetRange("Line No.", LineNo);
     end;
 
-    local procedure FilterSalesLineOnDocumentLine(SalesDocumentType: Enum "Sales Document Type"; DocumentNo: Code[20]; LineNo: Integer)
+    local procedure FilterSalesLineOnDocumentLine(SalesDocumentType: Enum "Sales Document Type"; DocumentNo: Code[20];
+                                                                         LineNo: Integer)
     begin
         SalesLine.SetRange("Document Type", SalesDocumentType);
         SalesLine.SetRange("Document No.", DocumentNo);
@@ -2340,18 +2689,16 @@ codeunit 139687 "Recurring Billing Docs Test"
         exit(SalesLine.Count());
     end;
 
-    local procedure GetNumberOfContractDocumentsPurchase(DocumentType: Enum "Purchase Document Type"): Integer
+    local procedure GetNumberOfContractDocumentsPurchase(): Integer
     begin
         PurchaseHeader.Reset();
-        PurchaseHeader.SetRange("Document Type", DocumentType);
         PurchaseHeader.SetRange("Recurring Billing", true);
         exit(PurchaseHeader.Count());
     end;
 
-    local procedure GetNumberOfContractDocumentsSales(DocumentType: Enum "Sales Document Type"): Integer
+    local procedure GetNumberOfContractDocumentsSales(): Integer
     begin
         SalesHeader.Reset();
-        SalesHeader.SetRange("Document Type", DocumentType);
         SalesHeader.SetRange("Recurring Billing", true);
         exit(SalesHeader.Count());
     end;
@@ -2610,6 +2957,17 @@ codeunit 139687 "Recurring Billing Docs Test"
         end;
     end;
 
+    local procedure MockSubscriptionLine(var SubscriptionLine: Record "Subscription Line")
+    var
+        ServiceCommitmentPackage: Record "Subscription Package";
+    begin
+        ContractTestLibrary.CreateServiceCommitmentPackage(ServiceCommitmentPackage);
+        SubscriptionLine.Init();
+        SubscriptionLine."Invoicing via" := SubscriptionLine."Invoicing via"::Contract;
+        SubscriptionLine."Subscription Package Code" := ServiceCommitmentPackage.Code;
+        SubscriptionLine.Insert(true);
+    end;
+
     #endregion Procedures
 
     #region Handlers
@@ -2826,6 +3184,19 @@ codeunit 139687 "Recurring Billing Docs Test"
     [MessageHandler]
     procedure MessageHandler(Message: Text[1024])
     begin
+    end;
+
+    [StrMenuHandler]
+    procedure StrMenuHandlerDeleteDocuments(Option: Text[1024]; var Choice: Integer; Instruction: Text[1024])
+    begin
+        case StrMenuHandlerStep of
+            1:
+                Choice := 1;
+            2:
+                Choice := 2;
+            else
+                Choice := 0;
+        end;
     end;
 
     #endregion Handlers

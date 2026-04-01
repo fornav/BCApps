@@ -192,7 +192,7 @@ codeunit 30161 "Shpfy Import Order"
         OrderLine.DeleteAll();
     end;
 
-    local procedure ConsiderRefundsInQuantityAndAmounts(var OrderHeader: Record "Shpfy Order Header")
+    internal procedure ConsiderRefundsInQuantityAndAmounts(var OrderHeader: Record "Shpfy Order Header")
     var
         OrderLine: Record "Shpfy Order Line";
         RefundLine: Record "Shpfy Refund Line";
@@ -222,9 +222,9 @@ codeunit 30161 "Shpfy Import Order"
             RefundLine.CalcSums(Quantity, Amount, "Presentment Amount", "Subtotal Amount", "Presentment Subtotal Amount", "Total Tax Amount", "Presentment Total Tax Amount");
             OrderLine.Quantity -= RefundLine.Quantity;
             OrderLine.Modify();
-            OrderHeader."Total Amount" -= RefundLine."Subtotal Amount";
+            OrderHeader."Total Amount" -= RefundLine."Subtotal Amount" + RefundLine."Total Tax Amount";
             OrderHeader."Subtotal Amount" -= RefundLine."Subtotal Amount";
-            OrderHeader."Presentment Total Amount" -= RefundLine."Presentment Subtotal Amount";
+            OrderHeader."Presentment Total Amount" -= RefundLine."Presentment Subtotal Amount" + RefundLine."Presentment Total Tax Amount";
             OrderHeader."Presentment Subtotal Amount" -= RefundLine."Presentment Subtotal Amount";
             OrderHeader."VAT Amount" -= RefundLine."Total Tax Amount";
             OrderHeader."Presentment VAT Amount" -= RefundLine."Presentment Total Tax Amount";
@@ -318,7 +318,7 @@ codeunit 30161 "Shpfy Import Order"
             Parameters.Add('StaffMember', 'staffMember { id }')
         else
             Parameters.Add('StaffMember', '');
-        JResponse := CommunicationMgt.ExecuteGraphQL("Shpfy GraphQL Type"::GetOrderHeader, Parameters);
+        JResponse := CommunicationMgt.ExecuteGraphQL("Shpfy GraphQL Type"::Orders_GetOrderHeader, Parameters);
         exit(JsonHelper.GetJsonObject(JResponse, JOrder, 'data.order'));
     end;
 
@@ -330,9 +330,9 @@ codeunit 30161 "Shpfy Import Order"
         JResponse: JsonToken;
     begin
         Parameters.Add('OrderId', Format(OrderId));
-        GraphQLType := "Shpfy GraphQL Type"::GetOrderLines;
+        GraphQLType := "Shpfy GraphQL Type"::Orders_GetOrderLines;
         if After <> '' then begin
-            GraphQLType := "Shpfy GraphQL Type"::GetNextOrderLines;
+            GraphQLType := "Shpfy GraphQL Type"::Orders_GetNextOrderLines;
             Parameters.Add('After', After);
         end;
 
@@ -353,6 +353,7 @@ codeunit 30161 "Shpfy Import Order"
         CompanyId: BigInteger;
         MainContactId: BigInteger;
         LocationId: BigInteger;
+        RetailLocationId: BigInteger;
         CompanyName: Text;
         EMail: Text;
         FirstName: Text;
@@ -366,6 +367,7 @@ codeunit 30161 "Shpfy Import Order"
             exit(false);
         OrderHeader."Shopify Order Id" := OrderId;
         OrderHeader."Shop Code" := Shop.Code;
+        OrderHeader."Use Shopify Order No." := Shop."Use Shopify Order No.";
         ICountyFromJson := Shop."County Source";
 
         OrderHeaderRecordRef.GetTable(OrderHeader);
@@ -496,6 +498,13 @@ codeunit 30161 "Shpfy Import Order"
                 LocationId := CommunicationMgt.GetIdOfGId(JsonHelper.GetValueAsText(JOrder, 'purchasingEntity.location.id'));
                 OrderHeaderRecordRef.Field(OrderHeader.FieldNo("Company Location Id")).Value := LocationId;
             end;
+        end;
+        #endregion
+        #region Retail Location
+        if JsonHelper.GetJsonObject(JOrder, JObject, 'retailLocation') then begin
+            RetailLocationId := CommunicationMgt.GetIdOfGId(JsonHelper.GetValueAsText(JOrder, 'retailLocation.legacyResourceId'));
+            OrderHeaderRecordRef.Field(OrderHeader.FieldNo("Retail Location Id")).Value := RetailLocationId;
+            JsonHelper.GetValueIntoField(JOrder, 'retailLocation.name', OrderHeaderRecordRef, OrderHeader.FieldNo("Retail Location Name"));
         end;
         #endregion
         OrderHeaderRecordRef.SetTable(OrderHeader);
@@ -639,11 +648,8 @@ codeunit 30161 "Shpfy Import Order"
         Currency: Record Currency;
         GeneralLedgerSetup: Record "General Ledger Setup";
         CurrencyCode: Code[10];
-        IsHandled: Boolean;
     begin
-        OrderEvents.OnBeforeTranslateCurrencyCode(ShopifyCurrencyCode, CurrencyCode, IsHandled);
-        if not IsHandled then
-            Currency.SetLoadFields(Code);
+        Currency.SetLoadFields(Code);
         Currency.SetRange("ISO Code", CopyStr(ShopifyCurrencyCode, 1, 3));
         if Currency.FindFirst() then
             CurrencyCode := Currency.Code;
@@ -749,7 +755,7 @@ codeunit 30161 "Shpfy Import Order"
     begin
         CommunicationMgt.SetShop(OrderHeader."Shop Code");
         Parameters.Add('OrderId', Format(OrderHeader."Shopify Order Id"));
-        JResponse := CommunicationMgt.ExecuteGraphQL("Shpfy GraphQL Type"::CloseOrder, Parameters);
+        JResponse := CommunicationMgt.ExecuteGraphQL("Shpfy GraphQL Type"::Orders_CloseOrder, Parameters);
         if JsonHelper.GetValueAsBigInteger(JResponse, 'data.orderClose.order.legacyResourceId') = OrderHeader."Shopify Order Id" then begin
             OrderHeaderRecordRef.GetTable(OrderHeader);
             JsonHelper.GetValueIntoField(JResponse, 'data.orderClose.order.closed', OrderHeaderRecordRef, OrderHeader.FieldNo(Closed));
@@ -907,9 +913,9 @@ codeunit 30161 "Shpfy Import Order"
     begin
         FulfillmentOrderLine.Reset();
         FulfillmentOrderLine.SetRange("Shopify Order Id", OrderLine."Shopify Order Id");
-        FulfillmentOrderLine.SetRange("Shopify Variant Id", OrderLine."Shopify Variant Id");
+        FulfillmentOrderLine.SetRange("Line Item Id", OrderLine."Line Id");
         FulfillmentOrderLine.SetFilter("Fulfillment Status", '<>%1', 'CLOSED');
-        if FulfillmentOrderLine.FindSet() then
+        if not FulfillmentOrderLine.IsEmpty() then
             UpdateLocationIdAndDeliveryMethodOnOrderLines(OrderLine, FulfillmentOrderLine)
         else begin
             FulfillmentOrderLine.SetRange("Fulfillment Status");

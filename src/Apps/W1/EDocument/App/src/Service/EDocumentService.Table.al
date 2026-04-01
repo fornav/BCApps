@@ -356,11 +356,7 @@ table 6103 "E-Document Service"
     end;
 
     internal procedure GetImportProcessVersion(): Enum "E-Document Import Process"
-    var
-        EDocumentsSetup: Record "E-Documents Setup";
     begin
-        if not EDocumentsSetup.IsNewEDocumentExperienceActive() then
-            exit("E-Document Import Process"::"Version 1.0");
         exit(Rec."Import Process");
     end;
 
@@ -397,6 +393,28 @@ table 6103 "E-Document Service"
 #else
         exit(StrSubstNo(EDocStringLbl, SystemId, "Document Format", "Service Integration V2", "Use Batch Processing", "Batch Mode"));
 #endif
+    end;
+
+    /// <summary>
+    /// Gets the default file extension for the e-document service.
+    /// </summary>
+    /// <returns>The default file extension (e.g., '.xml'). Can be overridden via OnAfterGetDefaultFileExtension event.</returns>
+    procedure GetDefaultFileExtension() FileExtension: Text
+    var
+        XMLFileTypeTok: Label '.xml', Locked = true;
+    begin
+        FileExtension := XMLFileTypeTok;
+        OnAfterGetDefaultFileExtension(Rec, FileExtension);
+    end;
+
+    /// <summary>
+    /// Integration event that allows subscribers to override the default file extension for the e-document service.
+    /// </summary>
+    /// <param name="EDocumentService">The E-Document Service record.</param>
+    /// <param name="FileExtension">The file extension to be used. By default, it is set to '.xml'.</param>
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterGetDefaultFileExtension(EDocumentService: Record "E-Document Service"; var FileExtension: Text)
+    begin
     end;
 
     var

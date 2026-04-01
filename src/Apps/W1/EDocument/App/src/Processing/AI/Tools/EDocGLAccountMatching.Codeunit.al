@@ -7,8 +7,6 @@ namespace Microsoft.eServices.EDocument.Processing.AI;
 using Microsoft.eServices.EDocument.Processing.Import;
 using Microsoft.eServices.EDocument.Processing.Import.Purchase;
 using Microsoft.Finance.GeneralLedger.Account;
-using Microsoft.Finance.GeneralLedger.Setup;
-using Microsoft.Finance.VAT.Setup;
 using Microsoft.Foundation.Company;
 using Microsoft.Purchases.Vendor;
 using System.AI;
@@ -114,6 +112,7 @@ codeunit 6126 "E-Doc. GL Account Matching" implements "AOAI Function", IEDocAISy
         UserMessage: JsonArray;
         UserMessageTxt: Text;
     begin
+        if EDocumentPurchaseLine.FindFirst() then;
         EDocumentPurchaseHeader.SetRange("E-Document Entry No.", EDocumentPurchaseLine."E-Document Entry No.");
         if EDocumentPurchaseHeader.FindFirst() then
             if Vendor.Get(EDocumentPurchaseHeader."[BC] Vendor No.") then;
@@ -148,10 +147,6 @@ codeunit 6126 "E-Doc. GL Account Matching" implements "AOAI Function", IEDocAISy
     procedure BuildGLAccounts() GLAccounts: JsonObject
     var
         GLAccount: Record "G/L Account";
-        GenBusPostingGroup: Record "Gen. Business Posting Group";
-        GenProdPostingGroup: Record "Gen. Product Posting Group";
-        VATBusPostingGroup: Record "VAT Business Posting Group";
-        VATProdPostingGroup: Record "VAT Product Posting Group";
         JsonObject: JsonObject;
         GLAccountArray: JsonArray;
     begin
@@ -168,19 +163,6 @@ codeunit 6126 "E-Doc. GL Account Matching" implements "AOAI Function", IEDocAISy
                 JsonObject.Add('accountCategory', Format(GLAccount."Account Category"));
                 if GLAccount."Account Subcategory Entry No." <> 0 then
                     JsonObject.Add('accountSubcategory', GLAccount."Account Subcategory Descript.");
-
-                if GenBusPostingGroup.Get(GLAccount."Gen. Bus. Posting Group") then
-                    if GenBusPostingGroup.Description <> '' then
-                        JsonObject.Add('generalBusinessPostingGroup', GenBusPostingGroup.Description);
-                if GenProdPostingGroup.Get(GLAccount."Gen. Prod. Posting Group") then
-                    if GenProdPostingGroup.Description <> '' then
-                        JsonObject.Add('generalProductPostingGroup', GenProdPostingGroup.Description);
-                if VATBusPostingGroup.Get(GLAccount."VAT Bus. Posting Group") then
-                    if VATBusPostingGroup.Description <> '' then
-                        JsonObject.Add('vatBusinessPostingGroup', VATBusPostingGroup.Description);
-                if VATProdPostingGroup.Get(GLAccount."VAT Prod. Posting Group") then
-                    if VATProdPostingGroup.Description <> '' then
-                        JsonObject.Add('vatProductPostingGroup', VATProdPostingGroup.Description);
 
                 GLAccountArray.Add(JsonObject);
             until (GLAccount.Next() = 0);
@@ -255,13 +237,13 @@ codeunit 6126 "E-Doc. GL Account Matching" implements "AOAI Function", IEDocAISy
 
     procedure Execute(Arguments: JsonObject): Variant
     var
-        EDocMatchLineBuffer: Record "EDoc Line Match Buffer";
+        TempEDocMatchLineBuffer: Record "EDoc Line Match Buffer";
     begin
-        EDocMatchLineBuffer."Line No." := Arguments.GetInteger('lineId');
-        EDocMatchLineBuffer."GL Account No." := CopyStr(Arguments.GetText('accountId'), 1, MaxStrLen(EDocMatchLineBuffer."GL Account No."));
-        EDocMatchLineBuffer."GL Account Reason" := CopyStr(Arguments.GetText('reasoning'), 1, MaxStrLen(EDocMatchLineBuffer."GL Account Reason"));
-        EDocMatchLineBuffer."GL Account Candidate Count" := Arguments.GetInteger('totalNumberOfPotentialAccounts');
-        exit(EDocMatchLineBuffer);
+        TempEDocMatchLineBuffer."Line No." := Arguments.GetInteger('lineId');
+        TempEDocMatchLineBuffer."GL Account No." := CopyStr(Arguments.GetText('accountId'), 1, MaxStrLen(TempEDocMatchLineBuffer."GL Account No."));
+        TempEDocMatchLineBuffer."GL Account Reason" := CopyStr(Arguments.GetText('reasoning'), 1, MaxStrLen(TempEDocMatchLineBuffer."GL Account Reason"));
+        TempEDocMatchLineBuffer."GL Account Candidate Count" := Arguments.GetInteger('totalNumberOfPotentialAccounts');
+        exit(TempEDocMatchLineBuffer);
     end;
 
     procedure GetName(): Text
@@ -274,15 +256,19 @@ codeunit 6126 "E-Doc. GL Account Matching" implements "AOAI Function", IEDocAISy
     procedure GetSystemPrompt(UserLanguage: Text): SecretText
     var
         AzureKeyVault: Codeunit "Azure Key Vault";
-        EDocumentAIProcessor: Codeunit "E-Doc. AI Tool Processor";
-        PromptSecretText: SecretText;
-        PromptSecretNameTok: Label 'EDocMatchLineToGLAccountV272', Locked = true;
+        SecurityPromptSecretText, CompletePromptSecretText : SecretText;
+        GLAccountMatchingPromptText: Text;
+        GLAccountMatchingPromptTok: Label 'Prompts/GLAccountMatching-SystemPrompt.md', Locked = true;
+        SecurityPromptTok: Label 'GLAccountMatching-SecurityPrompt', Locked = true;
     begin
-        if not AzureKeyVault.GetAzureKeyVaultSecret(PromptSecretNameTok, PromptSecretText) then
-            PromptSecretText := SecretStrSubstNo('');
-
-        PromptSecretText := EDocumentAIProcessor.SetLanguageInPrompt(PromptSecretText, UserLanguage);
-        exit(PromptSecretText);
+        GLAccountMatchingPromptText := NavApp.GetResourceAsText(GLAccountMatchingPromptTok, TextEncoding::UTF8);
+        if AzureKeyVault.GetAzureKeyVaultSecret(SecurityPromptTok, SecurityPromptSecretText) then
+            CompletePromptSecretText := SecretText.SecretStrSubstNo(GLAccountMatchingPromptText, SecurityPromptSecretText, UserLanguage)
+        else begin
+            Session.LogMessage('0000QPZ', 'Failed to retrieve security prompt', Verbosity::Error, DataClassification::SystemMetadata, TelemetryScope::All, 'Category', GetFeatureName());
+            CompletePromptSecretText := SecretStrSubstNo('');
+        end;
+        exit(CompletePromptSecretText);
     end;
 
     procedure GetTools(): List of [Interface "AOAI Function"]

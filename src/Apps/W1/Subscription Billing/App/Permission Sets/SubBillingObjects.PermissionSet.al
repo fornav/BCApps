@@ -23,6 +23,9 @@ permissionset 8001 "Sub. Billing Objects"
         codeunit "Customer Management" = X,
         codeunit "Date Formula Management" = X,
         codeunit "Date Time Management" = X,
+        codeunit "Deferral Post. Preview Binding" = X,
+        codeunit "Deferral Post. Preview Handler" = X,
+        codeunit "Deferral Post. Preview Subscr." = X,
         codeunit "Dimension Mgt." = X,
         codeunit "Document Change Management" = X,
         codeunit "Extend Sub. Contract Mgt." = X,
@@ -63,6 +66,8 @@ permissionset 8001 "Sub. Billing Objects"
         codeunit "Vendor Deferrals Mngmt." = X,
         codeunit "Vendor Management" = X,
         codeunit TableAndFieldManagement = X,
+        codeunit "Auto Contract Billing" = X,
+        codeunit "Sub. Billing Background Jobs" = X,
         page "Archived Billing Lines API" = X,
         page "Archived Billing Lines List" = X,
         page "Archived Billing Lines" = X,
@@ -211,5 +216,6 @@ permissionset 8001 "Sub. Billing Objects"
         table "Usage Data Supplier" = X,
         table "Vend. Sub. Contract Deferral" = X,
         table "Vend. Sub. Contract Line" = X,
-        table "Vendor Subscription Contract" = X;
+        table "Vendor Subscription Contract" = X,
+        table "Contract Billing Err. Log" = X;
 }

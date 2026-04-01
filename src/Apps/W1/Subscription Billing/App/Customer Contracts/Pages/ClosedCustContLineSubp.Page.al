@@ -1,5 +1,6 @@
 namespace Microsoft.SubscriptionBilling;
 
+using Microsoft.Finance.Dimension;
 using Microsoft.Inventory.Item;
 
 page 8080 "Closed Cust. Cont. Line Subp."
@@ -119,6 +120,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     ToolTip = 'Specifies the base amount from which the price will be calculated.';
                     BlankZero = true;
                     Editable = false;
+                    AutoFormatType = 2;
+                    AutoFormatExpression = ServiceCommitment."Currency Code";
                 }
                 field("Calculation Base %"; ServiceCommitment."Calculation Base %")
                 {
@@ -127,6 +130,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     ToolTip = 'Specifies the percent at which the price of the Subscription Line will be calculated. 100% means that the price corresponds to the Base Price.';
                     BlankZero = true;
                     Editable = false;
+                    DecimalPlaces = 0 : 5;
+                    AutoFormatType = 0;
                 }
                 field(Price; ServiceCommitment.Price)
                 {
@@ -134,6 +139,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     ToolTip = 'Specifies the price of the Subscription Line with quantity of 1 in the billing period. The price is calculated from Base Price and Base Price %.';
                     Editable = false;
                     BlankZero = true;
+                    AutoFormatType = 2;
+                    AutoFormatExpression = ServiceCommitment."Currency Code";
                 }
                 field("Price (LCY)"; ServiceCommitment."Price (LCY)")
                 {
@@ -142,6 +149,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     Visible = false;
                     BlankZero = true;
                     Editable = false;
+                    AutoFormatType = 2;
+                    AutoFormatExpression = '';
                 }
                 field("Discount %"; ServiceCommitment."Discount %")
                 {
@@ -151,6 +160,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     MinValue = 0;
                     MaxValue = 100;
                     Editable = false;
+                    DecimalPlaces = 0 : 5;
+                    AutoFormatType = 0;
                 }
                 field("Discount Amount"; ServiceCommitment."Discount Amount")
                 {
@@ -159,6 +170,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     BlankZero = true;
                     MinValue = 0;
                     Editable = false;
+                    AutoFormatType = 1;
+                    AutoFormatExpression = ServiceCommitment."Currency Code";
                 }
                 field("Discount Amount (LCY)"; ServiceCommitment."Discount Amount (LCY)")
                 {
@@ -174,6 +187,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     ToolTip = 'Specifies the amount for the Subscription Line including discount.';
                     BlankZero = true;
                     Editable = false;
+                    AutoFormatType = 1;
+                    AutoFormatExpression = '';
                 }
                 field("Service Amount (LCY)"; ServiceCommitment."Amount (LCY)")
                 {
@@ -182,6 +197,8 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     Visible = false;
                     BlankZero = true;
                     Editable = false;
+                    AutoFormatType = 1;
+                    AutoFormatExpression = '';
                 }
                 field("Billing Base Period"; ServiceCommitment."Billing Base Period")
                 {
@@ -223,7 +240,7 @@ page 8080 "Closed Cust. Cont. Line Subp."
                 field("Extension Term"; ServiceCommitment."Extension Term")
                 {
                     Caption = 'Subsequent Term';
-                    ToolTip = 'Specifies a date formula for automatic renewal after initial term and the rhythm of the update of "Notice possible to" and "Term Until". If the field is empty and the initial term or notice period is filled, the end of Subscription Line is automatically set to the end of the initial term or notice period.';
+                    ToolTip = 'Specifies a date formula for automatic renewal after initial term and the rhythm of the update of "Notice possible to" and "Term Until".';
                     Editable = false;
                     Visible = false;
                 }
@@ -272,11 +289,31 @@ page 8080 "Closed Cust. Cont. Line Subp."
                     Visible = false;
                     BlankZero = true;
                     Editable = false;
+                    DecimalPlaces = 0 : 15;
+                    AutoFormatType = 0;
                 }
                 field("Currency Factor Date"; ServiceCommitment."Currency Factor Date")
                 {
                     Caption = 'Currency Factor Date';
                     ToolTip = 'Specifies the date when the currency factor was last updated.';
+                    Visible = false;
+                    Editable = false;
+                }
+                field("Shortcut Dimension 1 Code"; ServiceCommitment."Shortcut Dimension 1 Code")
+                {
+                    ApplicationArea = Dimensions;
+                    Caption = 'Shortcut Dimension 1 Code';
+                    CaptionClass = '1,2,1';
+                    ToolTip = 'Specifies the code for Shortcut Dimension 1, which is one of two global dimension codes that you set up in the General Ledger Setup window.';
+                    Visible = false;
+                    Editable = false;
+                }
+                field("Shortcut Dimension 2 Code"; ServiceCommitment."Shortcut Dimension 2 Code")
+                {
+                    ApplicationArea = Dimensions;
+                    Caption = 'Shortcut Dimension 2 Code';
+                    CaptionClass = '1,2,2';
+                    ToolTip = 'Specifies the code for Shortcut Dimension 2, which is one of two global dimension codes that you set up in the General Ledger Setup window.';
                     Visible = false;
                     Editable = false;
                 }
@@ -291,6 +328,21 @@ page 8080 "Closed Cust. Cont. Line Subp."
             {
                 Caption = 'Contract Line';
                 Image = "Item";
+                action(Dimensions)
+                {
+                    AccessByPermission = tabledata Dimension = R;
+                    ApplicationArea = Dimensions;
+                    Caption = 'Dimensions';
+                    Image = Dimensions;
+                    Scope = Repeater;
+                    ShortcutKey = 'Shift+Ctrl+D';
+                    ToolTip = 'View or edit dimensions, such as area, project, or department, that you can assign to sales and purchase documents to distribute costs and analyze transaction history.';
+
+                    trigger OnAction()
+                    begin
+                        ServiceCommitment.EditDimensionSet();
+                    end;
+                }
                 action(ShowArchivedBillingLines)
                 {
                     Caption = 'Archived Billing Lines';
@@ -309,7 +361,7 @@ page 8080 "Closed Cust. Cont. Line Subp."
 
     trigger OnAfterGetRecord()
     begin
-        InitializePageVariables();
+        Rec.GetServiceObject(ServiceObject);
         Rec.LoadServiceCommitmentForContractLine(ServiceCommitment);
         LoadQuantityForContractLine();
         VariantCode := ServiceObject."Variant Code";
@@ -327,12 +379,6 @@ page 8080 "Closed Cust. Cont. Line Subp."
         ContractsGeneralMgt: Codeunit "Sub. Contracts General Mgt.";
         ContractLineQty: Decimal;
         VariantCode: Code[10];
-
-    local procedure InitializePageVariables()
-    begin
-        Rec.GetServiceCommitment(ServiceCommitment);
-        Rec.GetServiceObject(ServiceObject);
-    end;
 
     local procedure LoadQuantityForContractLine()
     begin

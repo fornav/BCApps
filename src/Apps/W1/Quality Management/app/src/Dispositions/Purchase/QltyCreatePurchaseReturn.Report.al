@@ -12,25 +12,25 @@ using Microsoft.Warehouse.Structure;
 
 report 20411 "Qlty. Create Purchase Return"
 {
-    ApplicationArea = PurchReturnOrder;
     Caption = 'Quality Management - Create Purchase Return Order';
-    AdditionalSearchTerms = 'purchase return order, vendor return, damaged item, defective';
-    UsageCategory = Tasks;
+    ToolTip = 'Use this to create a Purchase Return Order from a Quality Inspection.';
     ProcessingOnly = true;
+    AccessByPermission = tabledata "Qlty. Inspection Header" = R;
+    UsageCategory = Tasks;
+    ApplicationArea = PurchReturnOrder;
     AllowScheduling = false;
-    Description = 'Use this to create a Purchase Return Order from a Quality Inspection Test.';
 
     dataset
     {
-        dataitem(CurrentTest; "Qlty. Inspection Test Header")
+        dataitem(CurrentInspection; "Qlty. Inspection Header")
         {
-            RequestFilterFields = "No.", "Retest No.", "Source Item No.", "Source Variant Code", "Source Lot No.", "Source Serial No.", "Source Package No.", "Source Document No.", "Template Code";
+            RequestFilterFields = "No.", "Re-inspection No.", "Source Item No.", "Source Variant Code", "Source Lot No.", "Source Serial No.", "Source Package No.", "Source Document No.", "Template Code";
 
             trigger OnAfterGetRecord()
             var
                 ReactionRetQltyDispPurchaseReturn: Codeunit "Qlty. Disp. Purchase Return";
             begin
-                ReactionRetQltyDispPurchaseReturn.PerformDisposition(CurrentTest, QltyQuantityBehavior, SpecificQuantity, FilterOfSourceLocation, FilterOfSourceBin, ReasonCode, OptionalVendorCreditMemoNo);
+                ReactionRetQltyDispPurchaseReturn.PerformDisposition(CurrentInspection, QltyQuantityBehavior, SpecificQuantity, FilterOfSourceLocation, FilterOfSourceBin, ReasonCode, OptionalVendorCreditMemoNo);
             end;
         }
     }
@@ -38,16 +38,16 @@ report 20411 "Qlty. Create Purchase Return"
     requestpage
     {
         AboutTitle = 'About Creating a Purchase Return Order';
-        AboutText = 'Use this to create a Purchase Return Order from a Quality Inspection Test.';
+        AboutText = 'Use this to create a Purchase Return Order from a Quality Inspection.';
 
         layout
         {
             area(Content)
             {
-                group(SettingsForQuantity)
+                group(Quantity)
                 {
                     Caption = 'Quantity';
-                    InstructionalText = 'The quantity of the tested item that will be returned.';
+                    InstructionalText = 'The quantity of the inspected item that will be returned.';
 
                     field(ChooseReturnTracked; ReturnTracked)
                     {
@@ -91,7 +91,7 @@ report 20411 "Qlty. Create Purchase Return"
                             CurrReport.RequestOptionsPage.Update(true);
                         end;
                     }
-                    group(SettingsForSpecificQty)
+                    group(SpecificQty)
                     {
                         ShowCaption = false;
                         Visible = ReturnSpecific;
@@ -171,7 +171,7 @@ report 20411 "Qlty. Create Purchase Return"
                         end;
                     }
                 }
-                group(SettingsForReason)
+                group(Reason)
                 {
                     Caption = 'Reason (optional)';
                     InstructionalText = 'Optional return reason for the Purchase Return Order.';
@@ -184,10 +184,10 @@ report 20411 "Qlty. Create Purchase Return"
                         Tooltip = 'Specifies an optional reason code to use.';
                     }
                 }
-                group(SettingsForSource)
+                group(Source)
                 {
                     Caption = 'Source (optional)';
-                    InstructionalText = 'Optional filters that limit where the inventory is adjusted from if the test covers more than one bin.';
+                    InstructionalText = 'Optional filters that limit where the inventory is adjusted from if the inspection covers more than one bin.';
 
                     field(ChooseSourceLocationFilter; FilterOfSourceLocation)
                     {
@@ -204,7 +204,7 @@ report 20411 "Qlty. Create Purchase Return"
                         ToolTip = 'Specifies to optionally limit which bins will be used to pull the inventory from.';
                     }
                 }
-                group(SettingsForCreditMemo)
+                group(CreditMemo)
                 {
                     Caption = 'Vendor Credit Memo No. (optional)';
 

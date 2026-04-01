@@ -60,6 +60,27 @@ codeunit 7763 "AOAI Chat Messages"
     end;
 
     /// <summary>
+    /// Adds a user message with structured content parts to the chat messages history.
+    /// </summary>
+    /// <param name="AOAIUserMessage">The user message builder containing content parts (e.g. text, file).</param>
+    [NonDebuggable]
+    procedure AddUserMessage(AOAIUserMessage: Codeunit "AOAI User Message")
+    begin
+        AOAIChatMessagesImpl.AddUserMessage(AOAIUserMessage);
+    end;
+
+    /// <summary>
+    /// Adds a user message with structured content parts to the chat messages history.
+    /// </summary>
+    /// <param name="AOAIUserMessage">The user message builder containing content parts (e.g. text, file).</param>
+    /// <param name="NewName">The name of the user.</param>
+    [NonDebuggable]
+    procedure AddUserMessage(AOAIUserMessage: Codeunit "AOAI User Message"; NewName: Text[2048])
+    begin
+        AOAIChatMessagesImpl.AddUserMessage(AOAIUserMessage, NewName);
+    end;
+
+    /// <summary>
     /// Adds a assistant message to the chat messages history.
     /// </summary>
     /// <param name="NewMessage">The message to add.</param>
@@ -347,6 +368,17 @@ codeunit 7763 "AOAI Chat Messages"
     end;
 
     /// <summary>
+    /// Adds XPIA Detection tags to an Input text.
+    /// </summary>
+    /// <returns>Input text with XPIA Detection tags added.</returns>
+    /// <remarks>Please make sure to configure the AOAI policy to support XPIA detection before using this method. Also, remember to add the 'Input text with XPIA detection tags added' to a message.</remarks>
+    [NonDebuggable]
+    procedure AddXPIADetectionTags(var Input: Text)
+    begin
+        AOAIChatMessagesImpl.AddXPIADetectionTags(Input);
+    end;
+
+    /// <summary>
     /// Prepares the Tools to be sent to the deployment model.
     /// </summary>
     /// <returns>Tools in a JsonArray.</returns>
@@ -356,4 +388,15 @@ codeunit 7763 "AOAI Chat Messages"
     begin
         exit(AOAIToolsImpl.PrepareTools());
     end;
+
+    /// <summary>
+    /// Checks if the current chat messages history is compatible with the deployment model
+    /// </summary>
+    /// <returns>True if compatible, false otherwise.</returns>
+    [NonDebuggable]
+    internal procedure CheckCompatibilityWithModel(Deployment: SecretText)
+    begin
+        AOAIChatMessagesImpl.CheckCompatibilityWithModel(Deployment);
+    end;
+
 }
