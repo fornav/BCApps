@@ -19,7 +19,7 @@ page 6413 "ForNAV Peppol Setup"
     ApplicationArea = All;
     UsageCategory = Administration;
     SourceTable = "ForNAV Peppol Setup";
-    DataCaptionExpression = Rec.Authorized ? Format(Rec.Status) : AuthorizeLbl;
+    DataCaptionExpression = IsAuthorized ? Format(Rec.Status) : AuthorizeLbl;
     AdditionalSearchTerms = 'ForNAV Peppol Setup';
     DeleteAllowed = false;
 
@@ -27,29 +27,40 @@ page 6413 "ForNAV Peppol Setup"
     {
         area(Content)
         {
-            group(Identification)
+            group(IdentificationGroup)
             {
-                Caption = 'Identification';
-                Editable = Rec.Status <> Rec.Status::Published;
-                field(Code; Rec."Identification Code")
+                Caption = 'Identification', Locked = true;
+                Editable = PeppolSetupEditable;
+                group(PeppolId)
                 {
-                    ApplicationArea = All;
+                    Caption = 'Peppol Id';
+                    ShowCaption = false;
+                    field(Code; Rec."Identification Code")
+                    {
+                        ApplicationArea = All;
+                    }
+                    field(Value; Rec."Identification Value")
+                    {
+                        ApplicationArea = All;
+                    }
                 }
-                field(Value; Rec."Identification Value")
+                group(TestGroup)
                 {
-                    ApplicationArea = All;
-                }
-                field(Test; Rec.Test)
-                {
-                    Caption = 'Test';
-                    ApplicationArea = All;
+                    Caption = 'Test/Production', Locked = true;
+                    ShowCaption = false;
                     Editable = not Rec."Demo Company";
+
+                    field(Test; Rec.Test)
+                    {
+                        Caption = 'Test';
+                        ApplicationArea = All;
+                    }
                 }
             }
             group("Business Card")
             {
-                Editable = Rec.Status <> Rec.Status::Published;
                 Caption = 'Business Card';
+                Editable = PeppolSetupEditable;
                 field(Name; Rec.Name)
                 {
                     ApplicationArea = All;
@@ -102,15 +113,15 @@ page 6413 "ForNAV Peppol Setup"
                         PeppolOauth.ValidateClientID(ClientId);
                     end;
                 }
-                field(PeppolEndpoint; PeppolEndpoint)
+                field(Endpoint; Rec."Endpoint")
                 {
-                    Caption = 'Peppol Endpoint';
                     ToolTip = 'Specifies the Peppol Endpoint. You can get this from your ForNAV partner.';
                     ApplicationArea = All;
+                    Importance = Additional;
 
                     trigger OnValidate()
                     begin
-                        PeppolOauth.ValidateEndpoint(PeppolEndpoint, true);
+                        ValidateEndpoint();
                     end;
                 }
                 field(ForNAVTenantId; ForNAVTenantId)
@@ -159,14 +170,16 @@ page 6413 "ForNAV Peppol Setup"
                     Caption = 'Secret Valid From';
                     ApplicationArea = All;
                     ToolTip = 'Specifies the Oauth Secret Valid From. The secret will renew automatically, if a secret is expired please contact your ForNAV partner.';
-                    Editable = false;
+                    Visible = true;
+                    Editable = ShowConnectionSetup;
                 }
                 field(SecretValidTo; SecretValidTo)
                 {
                     Caption = 'Secret Expiration';
                     ApplicationArea = All;
                     ToolTip = 'Specifies the Oauth Secret Expiration. The secret will renew automatically, if a secret is expired please contact your ForNAV partner.';
-                    Editable = false;
+                    Visible = true;
+                    Editable = ShowConnectionSetup;
                     trigger OnValidate()
                     begin
                         PeppolOauth.ValidateSecretValidTo(SecretValidTo);
@@ -187,13 +200,16 @@ page 6413 "ForNAV Peppol Setup"
             actionref(PromotePublish; Publish)
             {
             }
+            actionref(PromoteRotateSecret; RotateSecret)
+            {
+            }
         }
         area(Processing)
         {
             action(Authorize)
             {
                 ApplicationArea = All;
-                Enabled = not Rec.Authorized;
+                Enabled = not IsAuthorized;
                 Caption = 'Authorize';
                 Image = ApprovalSetup;
                 ToolTip = 'Authorize the company to use the ForNAV Peppol endpoints.';
@@ -202,8 +218,8 @@ page 6413 "ForNAV Peppol Setup"
                     SMP: Codeunit "ForNAV Peppol SMP";
                 begin
                     Page.RunModal(Page::"ForNAV Peppol Setup Wizard", Rec);
-                    Rec.InitSetup();
-                    if Rec.Authorized then begin
+                    Rec.FindFirst();
+                    if Rec.TestAuthorized() then begin
                         SMP.ParticipantExists(Rec);
                         ShowNotification();
                     end;
@@ -215,7 +231,7 @@ page 6413 "ForNAV Peppol Setup"
             action(Publish)
             {
                 ApplicationArea = All;
-                Enabled = Rec.Authorized and (Rec.Status = Rec.Status::"Not published");
+                Enabled = IsAuthorized and (Rec.Status = Rec.Status::"Not published");
                 Caption = 'Publish';
                 Image = Approve;
                 ToolTip = 'Publish the company to the ForNAV Peppol SMP.';
@@ -231,6 +247,38 @@ page 6413 "ForNAV Peppol Setup"
                     Rec.TermsAccepted := true;
                     SMP.CreateParticipant(Rec);
                     PeppolJobQueue.SetupJobQueue();
+                    SetGlobals();
+                    CurrPage.Update();
+                end;
+            }
+            action(RotateSecret)
+            {
+                Caption = 'Rotate Client Secret';
+                Enabled = IsAuthorized;
+                ApplicationArea = All;
+                Image = RedoFluent;
+                ToolTip = 'Gets a new client secret and deletes the old one. May take a long time to run.';
+                trigger OnAction()
+                var
+#if not DEV
+                    SureQst: Label 'Are you sure you want to rotate the client secret? This process may run a long time and will delete the old secret.';
+                    CannotRotateErr: Label 'Cannot rotate secret if it is less than one week old.';
+#endif
+                begin
+#if not DEV
+                    if PeppolOauth.GetSecretValidFrom() > CreateDateTime(CalcDate('<-1w>', Today), Time) then
+                        Error(CannotRotateErr);
+
+                    if not Confirm(SureQst) then
+                        exit;
+#endif
+                    if PeppolOauth.TryTestOAuth() then
+                        PeppolOauth.GetNewSecurityKey()
+                    else
+                        Page.RunModal(Page::"ForNAV Peppol Setup Wizard", Rec);
+
+                    SetGlobals();
+                    CurrPage.Update();
                 end;
             }
             action(CompanyInformationFld)
@@ -257,36 +305,12 @@ page 6413 "ForNAV Peppol Setup"
                 Image = TestDatabase;
                 ToolTip = 'Test the connection to the ForNAV Peppol endpoints.';
                 trigger OnAction()
-                var
-                    ConnectionFailedErr: Label 'Connection failed';
-                    ConnectionOkMsg: Label 'Connection succeeded';
                 begin
                     if not PeppolOauth.TestOAuth() then
                         Error(ConnectionFailedErr);
 
                     Rec.Authorized := true;
                     Message(ConnectionOkMsg);
-                end;
-            }
-            action(RotateSecret)
-            {
-                Caption = 'Rotate Client Secret';
-                Visible = ShowConnectionSetup;
-                ApplicationArea = All;
-                Image = RedoFluent;
-                ToolTip = 'Gets a new client secret and deletes the old one. May take a long time to run.';
-                trigger OnAction()
-                var
-                    SureQst: Label 'Are you sure you want to rotate the client secret? This process may run a long time and will delete the old secret.';
-                    CannotRotateErr: Label 'Cannot rotate secret if it is less than one week old.';
-                begin
-                    if PeppolOauth.GetSecretValidFrom() > CreateDateTime(CalcDate('<-1w>', Today), Time) then
-                        Error(CannotRotateErr);
-
-                    if not Confirm(SureQst) then
-                        exit;
-                    Rec.RotateClientSecret();
-                    CurrPage.Update();
                 end;
             }
             action(ServiceSetup)
@@ -332,7 +356,7 @@ page 6413 "ForNAV Peppol Setup"
             action(RecreateJobQueue)
             {
                 ApplicationArea = All;
-                Visible = Rec.Authorized;
+                Visible = IsAuthorized;
                 Image = Task;
                 Caption = 'Recreate Job Queue';
                 ToolTip = 'Recreate the job queue for the ForNAV Peppol setup.';
@@ -355,6 +379,8 @@ page 6413 "ForNAV Peppol Setup"
                     SMP: Codeunit "ForNAV Peppol SMP";
                 begin
                     SMP.DeleteParticipant(Rec);
+                    SetGlobals();
+                    CurrPage.Update();
                 end;
             }
             action(Unauthorize)
@@ -382,7 +408,6 @@ page 6413 "ForNAV Peppol Setup"
         Setup: Codeunit "ForNAV Peppol Setup";
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
         ClientId: Text;
-        PeppolEndpoint: Text;
         ForNAVTenantId: Text;
         [NonDebuggable]
         ClientSecret: Text;
@@ -390,8 +415,12 @@ page 6413 "ForNAV Peppol Setup"
         SecretValidFrom: DateTime;
         SecretValidTo: DateTime;
         ShowConnectionSetup: Boolean;
+        PeppolSetupEditable: Boolean;
         EnableUnauthorize: Boolean;
+        IsAuthorized: Boolean;
         AuthorizeLbl: Label 'Please Authorize';
+        ConnectionFailedErr: Label 'Connection failed';
+        ConnectionOkMsg: Label 'Connection succeeded';
 
     trigger OnInit()
     begin
@@ -408,6 +437,7 @@ page 6413 "ForNAV Peppol Setup"
     begin
         ShowNotification();
         SetGlobals();
+        Rec.Test := Rec.IsTest();
     end;
 
     local procedure ShowNotification()
@@ -421,6 +451,22 @@ page 6413 "ForNAV Peppol Setup"
             Notification.AddAction('Link', Codeunit::"ForNAV Peppol Setup", 'NotificationLink');
             Notification.Send();
         end;
+    end;
+
+    internal procedure ValidateEndpoint()
+    begin
+        if not Rec.Authorized then
+            exit;
+
+        if Rec.Endpoint = PeppolOauth.GetEndpoint() then
+            exit;
+
+        Rec.Modify();
+        if not PeppolOauth.TestOAuth() then
+            Error(ConnectionFailedErr);
+
+        Rec.Authorized := true;
+        Message(ConnectionOkMsg);
     end;
 
     procedure SendEmail()
@@ -477,9 +523,13 @@ page 6413 "ForNAV Peppol Setup"
         EnvironmentInformation: Codeunit "Environment Information";
     begin
         ShowConnectionSetup := not EnvironmentInformation.IsSaaSInfrastructure();
-        EnableUnauthorize := Rec.Authorized or (Rec."Oauth Setup Request Sent" <> 0D);
+        IsAuthorized := Rec.TestAuthorized();
+        EnableUnauthorize := IsAuthorized or (Rec."Oauth Setup Request Sent" <> 0D);
+        PeppolSetupEditable := Rec.Status <> Rec.Status::Published;
+#if DEV
+        ShowConnectionSetup := true;
+#endif
         ClientId := PeppolOauth.GetClientID();
-        PeppolEndpoint := PeppolOauth.GetEndpoint();
         ForNAVTenantId := PeppolOauth.GetForNAVTenantID();
         ClientSecret := GetSecret();
         Scope := GetSecret();
@@ -489,7 +539,7 @@ page 6413 "ForNAV Peppol Setup"
 
     local procedure GetSecret(): Text
     begin
-        if Rec.Authorized then
+        if IsAuthorized then
             exit('********');
     end;
 }

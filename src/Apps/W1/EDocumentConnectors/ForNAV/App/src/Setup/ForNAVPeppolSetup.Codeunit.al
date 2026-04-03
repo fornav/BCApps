@@ -36,22 +36,35 @@ codeunit 6424 "ForNAV Peppol Setup"
 
     internal procedure Send(var HttpClient: HttpClient; Http: Codeunit "Http Message State") Result: integer
     var
+        PeppolOauth: Codeunit "ForNAV Peppol Oauth";
         Handled: Boolean;
         HttpRequestMessage: HttpRequestMessage;
         HttpResponseMessage: HttpResponseMessage;
+        DialogLbl: Label ' Sending request to the FORNAV Peppol Network. Please wait...', Comment = '%1= Source control provider', Locked = true;
+        Dlg: Dialog;
     begin
+        if GuiAllowed then
+            Dlg.Open(DialogLbl);
+
         AddForNavHeaders(Http);
         OnBeforeSend(HttpClient, Http, Handled);
         if Handled then
             exit(Http.GetHttpResponseMessage().HttpStatusCode);
 
+        if PeppolOauth.GetSecretValidTo() < CreateDateTime(CalcDate('<+2m>', Today), Time) then
+            PeppolOauth.GetNewSecurityKey();
+
         HttpRequestMessage := Http.GetHttpRequestMessage();
         if not AddSecurityHeaders(HttpRequestMessage) then
-            exit(401);
+            exit(407);
         HttpClient.Send(HttpRequestMessage, HttpResponseMessage);
         RemoveSecurityHeaders(HttpRequestMessage);
         Http.SetHttpResponseMessage(HttpResponseMessage);
         Http.SetHttpRequestMessage(HttpRequestMessage);
+
+        if GuiAllowed then
+            Dlg.Close();
+
         exit(HttpResponseMessage.HttpStatusCode);
     end;
 
@@ -87,7 +100,7 @@ codeunit 6424 "ForNAV Peppol Setup"
         end else begin
             InitLicens();
             Setup.InitSetup();
-            if Setup.Authorized then
+            if Setup.TestAuthorized() then
                 SMP.ParticipantExists(Setup);
             InitCalled := true;
         end;
@@ -98,7 +111,9 @@ codeunit 6424 "ForNAV Peppol Setup"
         InitCalled := false;
     end;
 
+#if not DEV
     [NonDebuggable]
+# endif
     local procedure AddForNavHeaders(Http: Codeunit "Http Message State")
     var
         PeppolSetup: Record "ForNAV Peppol Setup";
@@ -115,24 +130,18 @@ codeunit 6424 "ForNAV Peppol Setup"
 
     local procedure AddSecurityHeaders(var HttpRequestMessage: HttpRequestMessage): Boolean
     var
-        PeppolSetup: Record "ForNAV Peppol Setup";
         PeppolOauth: Codeunit "ForNAV Peppol Oauth";
         OAuthToken: Codeunit "ForNAV Peppol Oauth Token";
         HttpHeaders: HttpHeaders;
     begin
         RemoveSecurityHeaders(HttpRequestMessage);
         HttpRequestMessage.GetHeaders(HttpHeaders);
-        PeppolSetup.InitSetup();
-
-        if PeppolOauth.GetSecretValidTo() < CreateDateTime(CalcDate('<+2m>', Today), Time) then
-            PeppolSetup.RotateClientSecret();
 
         if (AccessToken.IsEmpty()) or (AccessTokenExpires < CurrentDateTime) then begin
             if not OAuthToken.AcquireTokenWithClientCredentials(PeppolOauth.GetClientID(), PeppolOauth.GetClientSecret(), PeppolOauth.GetOAuthAuthorityUrl(), '', PeppolOauth.GetEndpointScope()) then
                 exit(false);
 
             OAuthToken.GetAccessToken(AccessToken, AccessTokenExpires);
-            PeppolOauth.StoreRoles(OAuthToken.GetRoles());
         end;
 
         if AccessToken.IsEmpty() then

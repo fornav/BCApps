@@ -125,6 +125,11 @@ page 6414 "ForNAV Peppol Setup Wizard"
                         Rec.Validate("E-Mail", EMail);
                     end;
                 }
+                field(Endpoint; Rec.Endpoint)
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the Peppol Endpoint. You can get this from your ForNAV partner.';
+                }
                 group(AutoOauthSetup)
                 {
                     ShowCaption = false;
@@ -190,6 +195,12 @@ page 6414 "ForNAV Peppol Setup Wizard"
                     ApplicationArea = All;
                     Editable = false;
                 }
+                field("Setup Message"; Rec."Setup Message")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    MultiLine = true;
+                }
             }
         }
     }
@@ -245,11 +256,14 @@ page 6414 "ForNAV Peppol Setup Wizard"
     trigger OnOpenPage()
     var
         Setup: Record "ForNAV Peppol Setup";
+        PeppolOauth: Codeunit "ForNAV Peppol Oauth";
     begin
         Setup.InitSetup();
         Rec := Setup;
         ContactPerson := Rec."Contact Person";
         EMail := Rec."E-Mail";
+        Rec.Endpoint := PeppolOauth.GetDefaultEndpoint();
+        Rec.Modify();
         Step := Step::Step1;
         SetManualSetup();
         EnableControls();
@@ -315,9 +329,13 @@ page 6414 "ForNAV Peppol Setup Wizard"
 
     local procedure SetManualSetup()
     var
+#if not DEV
         EnvironmentInformation: Codeunit "Environment Information";
+#endif
     begin
+#if not DEV
         ManualSetupEnabled := not EnvironmentInformation.IsSaaSInfrastructure();
+#endif
     end;
 
     local procedure ProcessStepAction()
@@ -344,7 +362,7 @@ page 6414 "ForNAV Peppol Setup Wizard"
                     Setup."Contact Person" := Rec."Contact Person";
                     Setup."E-Mail" := Rec."E-Mail";
                     Setup.Modify();
-                    Setup.SetupOauth();
+                    Setup.SetupOauth(Rec.Endpoint);
                     Rec := Setup;
                     CurrPage.Update();
                 end;

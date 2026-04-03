@@ -4,7 +4,6 @@
 // ------------------------------------------------------------------------------------------------
 namespace Microsoft.EServices.EDocumentConnector.ForNAV;
 
-using System.Security.User;
 using System.Threading;
 
 codeunit 6412 "ForNAV Peppol Job Queue"
@@ -85,15 +84,5 @@ codeunit 6412 "ForNAV Peppol Job Queue"
 
         JobQueueEntry."No. of Minutes between Runs" := 30;
         Enqueue.Run(JobQueueEntry);
-    end;
-
-    procedure ProcessEntriesIfSuper()
-    var
-        UserPermissions: Codeunit "User Permissions";
-    begin
-        if UserPermissions.IsSuper(UserSecurityId()) then begin
-            ProcessEntries();
-            SelectLatestVersion();
-        end;
     end;
 }

@@ -101,7 +101,7 @@ codeunit 6425 "ForNAV Peppol SMP"
         case result of
             0:
                 Setup.Status := Setup.Status::"Offline";
-            401:
+            401, 418:
                 begin
                     Setup.Authorized := false;
                     Message(ConnectionLbl, GetLastErrorText());
@@ -131,6 +131,11 @@ codeunit 6425 "ForNAV Peppol SMP"
                 Setup.Status := Setup.Status::"Published by another AP";
             428:
                 Setup.Status := Setup.Status::"Waiting for approval";
+            500:
+                begin
+                    Setup.Status := Setup.Status::"Not published";
+                    Message(ConnectionLbl, GetLastErrorText());
+                end;
             else
                 Error('Unknown error %1', Result);
         end;
